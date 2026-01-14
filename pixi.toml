@@ -22,9 +22,13 @@ executors_3 = { cmd = "ros2 service call /second_srv example_interfaces/srv/AddT
 [dependencies]
 # ROS
 ros-jazzy-ros2run = ">=0.32.6,<0.33"
+ros-jazzy-rviz2 = ">=14.1.16,<15"
+ros-jazzy-tf2-ros = ">=0.36.15,<0.37"
+ros-jazzy-tf2-tools = ">=0.36.15,<0.37"
+ros-jazzy-turtlesim = ">=1.8.3,<2"
 
 # Course packages
-ros-jazzy-robp-boot-camp-launch = { path = "src/robp_robot/robp_boot_camp/robp_boot_camp_launch" }
+ros-jazzy-robp-boot-camp-launch = { path = "src/robp_boot_camp/robp_boot_camp_launch" }
 ros-jazzy-robp-interfaces = { path = "src/robp_robot/robp_interfaces" }
 
 # Aruco
