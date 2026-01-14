@@ -516,7 +516,7 @@ environments:
         build: hb0f4dca_0
       - conda: src/odometry
         build: hb0f4dca_0
-      - conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+      - conda: src/robp_boot_camp/robp_boot_camp_launch
         build: hb0f4dca_0
       - conda: src/robp_robot/robp_interfaces
         build: hb0f4dca_0
@@ -966,7 +966,7 @@ environments:
         build: h60d57d3_0
       - conda: src/odometry
         build: h60d57d3_0
-      - conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+      - conda: src/robp_boot_camp/robp_boot_camp_launch
         build: h60d57d3_0
       - conda: src/robp_robot/robp_interfaces
         build: h60d57d3_0
@@ -1391,7 +1391,7 @@ environments:
         build: h2433df5_0
       - conda: src/odometry
         build: h2433df5_0
-      - conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+      - conda: src/robp_boot_camp/robp_boot_camp_launch
         build: h2433df5_0
       - conda: src/robp_robot/robp_interfaces
         build: h2433df5_0
@@ -15662,7 +15662,7 @@ packages:
   license: BSD-3-Clause
   size: 304498
   timestamp: 1764195229888
-- conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+- conda: src/robp_boot_camp/robp_boot_camp_launch
   name: ros-jazzy-robp-boot-camp-launch
   version: 1.0.0
   build: h2433df5_0
@@ -15688,7 +15688,7 @@ packages:
   - python_abi 3.12.* *_cp312
   - numpy >=1.26.4,<2.0a0
   license: LicenseRef-MIT
-- conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+- conda: src/robp_boot_camp/robp_boot_camp_launch
   name: ros-jazzy-robp-boot-camp-launch
   version: 1.0.0
   build: h60d57d3_0
@@ -15709,7 +15709,7 @@ packages:
   - python_abi 3.12.* *_cp312
   - numpy >=1.26.4,<2.0a0
   license: LicenseRef-MIT
-- conda: src/robp_robot/robp_boot_camp/robp_boot_camp_launch
+- conda: src/robp_boot_camp/robp_boot_camp_launch
   name: ros-jazzy-robp-boot-camp-launch
   version: 1.0.0
   build: hb0f4dca_0
