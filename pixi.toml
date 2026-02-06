@@ -23,6 +23,8 @@ arm_camera = { cmd = "ros2 launch robp_launch arm_camera_launch.yaml" }
 lidar = { cmd = "ros2 launch robp_launch lidar_launch.yaml" }
 phidgets = { cmd = "ros2 launch robp_launch phidgets_launch.yaml" }
 realsense = { cmd = "ros2 launch robp_launch realsense_launch.yaml" }
+[tasks.phidgets_teleop]
+cmd = "python3 src/phidgets_teleop/phidgets_teleop/teleop.py"
 
 [tasks.install_udev_rules]
 cmd = '''
@@ -81,6 +83,7 @@ ros-jazzy-detection = { path = "src/detection" }
 
 # Other
 argcomplete = ">=3.6.3,<4"
+pynput = ">=1.8.1,<2"
 
 [target.linux-64.dependencies]
 # ROS
@@ -103,4 +106,4 @@ platformio = ">=6.1.18,<7"
 # Works with Linux and macOS
 RMW_IMPLEMENTATION = "rmw_cyclonedds_cpp"
 ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"  # LOCALHOST, SUBNET
-ROS_DOMAIN_ID = "0"                       # Change to group number
+ROS_DOMAIN_ID = "7"                       # Change to group number

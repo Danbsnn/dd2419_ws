@@ -8,16 +8,10 @@
     <param name="publish_frequency" value="30.0" />
   </node>
 
-	<node name="marker_1" pkg="tf2_ros" exec="static_transform_publisher" args="--x -1 --y -1 --z 0.18 --frame-id map --child-frame-id aruco/marker1" />
-	<node name="marker_2" pkg="tf2_ros" exec="static_transform_publisher" args="--x 2 --y 0 --z 0.18 --yaw 3.14159265359 --frame-id map --child-frame-id aruco/marker2" />
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="map_to_odom" output="screen"
+      args="0 0 0 0 0 0 map odom" />
 
-	<node name="aruco" pkg="aruco_ros" exec="marker_publisher" output='screen'>
-		<remap from="/camera_info" to="/camera/color/camera_info"/>
-		<remap from="/image" to="/camera/color/image_raw"/>
-		
-		<param name="image_is_rectified" value="True"/>
-		<param name="marker_size"        value="0.157"/> <!-- in m -->
-		<param name="reference_frame"    value=""/>   <!-- frame in which the marker pose will be refered -->
-		<param name="camera_frame"       value="camera_color_optical_frame"/>
-	</node>
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="realsense_to_base_link" output="screen"
+      args="0 0 0 0 0 0 base_link realsense_camera_link" />
+
 </launch>

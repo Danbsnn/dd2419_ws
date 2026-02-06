@@ -8,12 +8,17 @@ import rclpy
 from rclpy.node import Node
 
 from tf2_ros import TransformBroadcaster
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 
 from geometry_msgs.msg import TransformStamped
 from robp_interfaces.msg import Encoders
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
+
+from rclpy.time import Time
+
 
 
 class Odometry(Node):
@@ -31,12 +36,14 @@ class Odometry(Node):
 
         # Subscribe to encoder topic and call callback function on each recieved message
         self.create_subscription(
-            Encoders, '/motor/encoders', self.encoder_callback, 10)
+            Encoders, '/phidgets/motor/encoders', self.encoder_callback, 10)
 
         # 2D pose
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
+
+
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -53,20 +60,26 @@ class Odometry(Node):
         # The kinematic parameters for the differential configuration
         dt = 50 / 1000
         ticks_per_rev = 48 * 64
-        wheel_radius = 0.0  # TODO: Fill in
-        base = 0.0  # TODO: Fill in
+        wheel_radius = 0.04921  # TODO: Fill in
+        base = 0.32  # TODO: Fill in
 
         # Ticks since last message
         delta_ticks_left = msg.delta_encoder_left
         delta_ticks_right = msg.delta_encoder_right
 
         # TODO: Fill in
+        K = 2 * math.pi / ticks_per_rev
 
-        self._x = self._x  # TODO: Fill in
-        self._y = self._y  # TODO: Fill in
-        self._yaw = self._yaw  # TODO: Fill in
+        D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
+        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+
+        self._x = self._x + D * np.cos(self._yaw)  # TODO: Fill in
+        self._y = self._y + D * np.sin(self._yaw)  # TODO: Fill in
+        self._yaw = self._yaw + delta_theta # TODO: Fill in
         
-        stamp = None # TODO: Fill in
+        # stamp = msg.header.stamp # TODO: Fill in
+        stamp = self.get_clock().now().to_msg()
+
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_path(stamp, self._x, self._y, self._yaw)
