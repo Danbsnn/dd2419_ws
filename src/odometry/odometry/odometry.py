@@ -60,8 +60,8 @@ class Odometry(Node):
         # The kinematic parameters for the differential configuration
         dt = 50 / 1000
         ticks_per_rev = 48 * 64
-        wheel_radius = 0.04921  # TODO: Fill in
-        base = 0.32  # TODO: Fill in
+        wheel_radius = 0.04921 
+        base = 0.296  # Measured on sleepy
 
         # Ticks since last message
         delta_ticks_left = msg.delta_encoder_left
