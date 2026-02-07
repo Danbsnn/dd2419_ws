@@ -33,6 +33,7 @@ class MotorTeleop(Node):
 
         self.get_logger().info("Teleop ready: W A S D to move, Q to quit")
 
+
     # -------------------------
     # Keyboard handling
     # -------------------------
@@ -40,19 +41,27 @@ class MotorTeleop(Node):
         try:
             k = key.char.lower()
             with self.lock:
-                if k == 'w':
+                if k == '8':
                     self.left_speed = 0.5
                     self.right_speed = 0.5
-                elif k == 's':
+                   
+                    
+                elif k == '2':
                     self.left_speed = -0.5
                     self.right_speed = -0.5
-                elif k == 'a':
+                    
+                    
+                elif k == '4':
                     self.left_speed = -0.3
                     self.right_speed = 0.3
-                elif k == 'd':
+                   
+                    
+                elif k == '6':
                     self.left_speed = 0.3
                     self.right_speed = -0.3
-                elif k == 'q':
+                 
+                    
+                elif k == '5':
                     rclpy.shutdown()
         except:
             pass
