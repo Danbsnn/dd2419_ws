@@ -8,7 +8,8 @@ from geometry_msgs.msg import TransformStamped, PoseStamped
 from nav_msgs.msg import Path
 
 from tf2_ros import TransformBroadcaster
-from tf_transformations import quaternion_from_euler, euler_from_quaternion
+from geometry_msgs.msg import PoseStamped
+from tf_transformations import quaternion_from_euler
 
 
 class Localization(Node):
@@ -39,11 +40,42 @@ class Localization(Node):
 
 
     def path_callback(self, msg):
-        if len(msg.poses) == 0:
-            self.get_logger().info("No path available from odom") 
+        """Publishes latest odometry pose in the map frame"""
+        if not msg.poses:
+            self.get_logger().info("No path available from odom")
+            return
         
-        latest_pose = msg.poses[-1].pose  # geometry_msgs/PoseStamped[] poses
+        latest_pose = msg.poses[-1]  # geometry_msgs/PoseStamped[] poses
         
+        localized_pose = PoseStamped()
+        localized_pose.header.stamp = latest_pose.header.stamp
+        localized_pose.header.frame_id = "map"
+        localized_pose.pose = latest_pose.pose
+
+        self.broadcast_transform(latest_pose.header.stamp)
+
+        # self.get_logger().info(f"Localized Pose")
+        self.pose_pub.publish(localized_pose)
+
+
+    def broadcast_transform(self, stamp):
+        t = TransformStamped()
+        t.header.stamp = stamp
+        t.header.frame_id = "map"
+        t.child_frame_id = "odom"
+
+        t.transform.translation.x = 0.0
+        t.transform.translation.y = 0.0
+        t.transform.translation.z = 0.0
+
+
+        q = quaternion_from_euler(0.0, 0.0, 0.0)
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+
+        self.tf_broadcaster.sendTransform(t)
 
 def main():
     rclpy.init()
