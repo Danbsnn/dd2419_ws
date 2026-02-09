@@ -36,6 +36,11 @@ cmd = "python3 src/robot_drive_distance/robot_drive_distance/robot_drive_distanc
 [tasks.jazzy_teleop]
 cmd = "python3 src/teleop_twist_joy/teleop_twist_joy/jazzy_teleop.py"
 
+
+[tasks.detection]
+cmd = "python3 src/detection/detection/detection.py"
+
+
 [tasks.install_udev_rules]
 cmd = '''
 echo "Copying udev rules" &&
@@ -81,6 +86,7 @@ ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
 
 # Course packages'arm_pick = arm_pick.arm_pick_node:main'
 ros-jazzy-arm-pick = { path = "src/arm_pick" }
+ros-jazzy-localization = { path = "src/localization"}
 
 ros-jazzy-robp-autocomplete = { path = "src/robp_autocomplete" }
 ros-jazzy-robp-boot-camp-launch = { path = "src/robp_boot_camp_launch" }

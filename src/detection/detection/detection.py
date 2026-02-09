@@ -1,72 +1,58 @@
-#!/usr/bin/env python
-
-import math
-
-import numpy as np
+#!/usr/bin/env python3
 
 import rclpy
 from rclpy.node import Node
-
-from sensor_msgs.msg import PointCloud2
-import sensor_msgs_py.point_cloud2 as pc2
-
-import ctypes
-import struct
+from sensor_msgs.msg import Image
+import numpy as np
+import cv2
+from cv_bridge import CvBridge
 
 
-class Detection(Node):
+class ColorDetection(Node):
 
     def __init__(self):
-        super().__init__('detection')
+        super().__init__('color_detection')
 
-        # Initialize the publisher
-        self._pub = self.create_publisher(
-            PointCloud2, '/camera/depth/color/ds_points', 10)
+        print("ColorDetection node started. Waiting for color images...")
 
-        # Subscribe to point cloud topic and call callback function on each received message
+        # CvBridge converts ROS Image <-> OpenCV image
+        self.bridge = CvBridge()
+
+        # Subscribe to color image topic
         self.create_subscription(
-            PointCloud2, '/camera/depth/color/points', self.cloud_callback, 10)
+            Image,
+            '/realsense/color/image_raw',  # RealSense color stream
+            self.image_callback,
+            10
+        )
 
-    def cloud_callback(self, msg: PointCloud2):
-        """Takes point cloud readings to detect objects.
+    def image_callback(self, msg: Image):
+        # Convert ROS Image -> OpenCV image (NumPy array)
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().error(f"Could not convert image: {e}")
+            return
 
-        This function is called for every message that is published on the '/camera/depth/color/points' topic.
+        height, width, _ = cv_image.shape
+        # Pick the center pixel
+        center_pixel = cv_image[height // 2, width // 2]  # BGR
+        b, g, r = center_pixel
 
-        Your task is to use the point cloud data in 'msg' to detect objects. You are allowed to add/change things outside this function.
-
-        Keyword arguments:
-        msg -- A point cloud ROS message. To see more information about it 
-        run 'ros2 interface show sensor_msgs/msg/PointCloud2' in a terminal.
-        """
-
-        # Convert ROS -> NumPy
-
-        gen = pc2.read_points_numpy(msg, skip_nans=True)
-        points = gen[:, :3]
-        colors = np.empty(points.shape, dtype=np.uint32)
-
-        for idx, x in enumerate(gen):
-            c = x[3]
-            s = struct.pack('>f', c)
-            i = struct.unpack('>l', s)[0]
-            pack = ctypes.c_uint32(i).value
-            colors[idx, 0] = np.asarray((pack >> 16) & 255, dtype=np.uint8)
-            colors[idx, 1] = np.asarray((pack >> 8) & 255, dtype=np.uint8)
-            colors[idx, 2] = np.asarray(pack & 255, dtype=np.uint8)
-
-        colors = colors.astype(np.float32) / 255
+        print(f"Center pixel RGB: R={r}, G={g}, B={b}")
 
 
 def main():
     rclpy.init()
-    node = Detection()
+    node = ColorDetection()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-
-    rclpy.shutdown()
+    finally:
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
     main()
+

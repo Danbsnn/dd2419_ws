@@ -18,9 +18,9 @@ class DriveDistance(Node):
         self.right_encoder = 0
 
         # Wheel parameters
-        self.left_radius = 0.0485  # meters
+        self.left_radius = 0.047  # meters
         self.right_radius = 0.047  # meters
-        self.ticks_per_revolution = 300  # adjust to your encoders
+        self.ticks_per_revolution = 2872  # adjust to your encoders
 
         self.target_distance = target_distance_m
         self.timer = self.create_timer(0.05, self.drive)
@@ -68,7 +68,7 @@ class DriveDistance(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = DriveDistance(target_distance_m=1.0)  # drive 1 meter
+    node = DriveDistance(target_distance_m=2.0)  # drive 1 meter
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
