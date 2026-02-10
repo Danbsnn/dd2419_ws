@@ -24,6 +24,7 @@ lidar = { cmd = "ros2 launch robp_launch lidar_launch.yaml" }
 phidgets = { cmd = "ros2 launch robp_launch phidgets_launch.yaml" }
 realsense = { cmd = "ros2 launch robp_launch realsense_launch.yaml" }
 arm_pick = { cmd = "ros2 run arm_pick arm_pick_node" }
+
 [tasks.phidgets_teleop]
 cmd = "python3 src/phidgets_teleop/phidgets_teleop/teleop.py"
 

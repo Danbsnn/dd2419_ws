@@ -68,12 +68,10 @@ class Localization(Node):
         t.transform.translation.y = 0.0
         t.transform.translation.z = 0.0
 
-
-        q = quaternion_from_euler(0.0, 0.0, 0.0)
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
+        t.transform.rotation.x = 0.0
+        t.transform.rotation.y = 0.0
+        t.transform.rotation.z = 0.0
+        t.transform.rotation.w = 1.0
 
         self.tf_broadcaster.sendTransform(t)
 
