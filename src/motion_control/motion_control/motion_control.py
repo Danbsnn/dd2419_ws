@@ -90,9 +90,6 @@ class MotionControl(Node):
             omega = self.k_alpha * alpha
             omega = max(min(omega, self.omega_max), -self.omega_max)
 
-            if abs(omega) < 0.1:  # If rotation is too small, don't bother
-                omega = 0.0
-
             v_r = omega * self.L / 2.0
             v_l = -omega * self.L / 2.0
             
@@ -141,5 +138,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
