@@ -42,6 +42,9 @@ cmd = "python3 src/teleop_twist_joy/teleop_twist_joy/jazzy_teleop.py"
 cmd = "python3 src/detection/detection/detection.py"
 
 
+[tasks.random_goal_generator]
+cmd = "python3 src/random_goal_generator/random_goal_generator/random_goal_generator.py"
+
 [tasks.install_udev_rules]
 cmd = '''
 echo "Copying udev rules" &&

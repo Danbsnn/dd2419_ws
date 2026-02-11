@@ -154,7 +154,9 @@ class randompoint(Node)
 
 if __name__ == "__main__":
     main()
-    """
+"""
+
+
 #!/usr/bin/env python3
 
 import rclpy
@@ -212,16 +214,16 @@ class DriveToPoint(Node):
         # -----------------------------
         # Controller gains
         # -----------------------------
-        self.k_rho = 0.8
-        self.k_alpha = 2.0
-        self.v_max = 0.4
-        self.omega_max = 2.0
+        self.k_rho = 0.5
+        self.k_alpha = 1.5
+        self.v_max = 0.3
+        self.omega_max = 1.5
 
         # -----------------------------
         # Random target region
         # -----------------------------
-        self.x_min, self.x_max = 0.0, 1.0
-        self.y_min, self.y_max = 0.0, 1.0
+        self.x_min, self.x_max = 0.0, 0.8
+        self.y_min, self.y_max = 0.0, 0.8
 
         # Pause parameters
         self.pause_until = None
@@ -366,8 +368,8 @@ class DriveToPoint(Node):
         v_r = v + omega * self.L / 2.0
         v_l = v - omega * self.L / 2.0
 
-        msg.duty_cycle_right = max(min(v_r / self.v_max, 1.0), -1.0)
-        msg.duty_cycle_left = max(min(v_l / self.v_max, 1.0), -1.0)
+        msg.duty_cycle_right = max(min(v_r / self.v_max, 0.5), -0.5)
+        msg.duty_cycle_left = max(min(v_l / self.v_max, 0.5), -0.5)
 
         self.motor_pub.publish(msg)
 
