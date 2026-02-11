@@ -91,6 +91,7 @@ ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
 # Course packages'arm_pick = arm_pick.arm_pick_node:main'
 ros-jazzy-arm-pick = { path = "src/arm_pick" }
 ros-jazzy-localization = { path = "src/localization"}
+ros-jazzy-motion-control = { path = "src/motion_control"}
 
 ros-jazzy-robp-autocomplete = { path = "src/robp_autocomplete" }
 ros-jazzy-robp-boot-camp-launch = { path = "src/robp_boot_camp_launch" }
