@@ -34,10 +34,10 @@ class MotionControl(Node):
         self.L = 0.30         # wheel separation (m)
 
         # Controller gains
-        self.k_rho = 0.5
-        self.k_alpha = 1.2
-        self.v_max = 0.4
-        self.omega_max = 2.0
+        self.k_rho = 0.2
+        self.k_alpha = 0.5
+        self.v_max = 0.2
+        self.omega_max = 1.0
 
         # Control loop
         self.timer = self.create_timer(0.1, self.control_loop)
@@ -67,6 +67,10 @@ class MotionControl(Node):
         theta_d = math.atan2(dy, dx)
         alpha = self.wrap_to_pi(theta_d - self.theta)
 
+        self.get_logger().info(f"Pos: ({self.x:.2f}, {self.y:.2f}, {self.theta:.2f})")
+        self.get_logger().info(f"Goal: ({self.x_t:.2f}, {self.y_t:.2f})")
+        self.get_logger().info(f"rho: {rho:.2f}, alpha: {alpha:.2f}")
+
         if rho < 0.05:
             msg.duty_cycle_left = 0.0
             msg.duty_cycle_right = 0.0
@@ -85,6 +89,9 @@ class MotionControl(Node):
             v = 0.0
             omega = self.k_alpha * alpha
             omega = max(min(omega, self.omega_max), -self.omega_max)
+
+            if abs(omega) < 0.1:  # If rotation is too small, don't bother
+                omega = 0.0
 
             v_r = omega * self.L / 2.0
             v_l = -omega * self.L / 2.0
@@ -134,4 +141,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
