@@ -1,167 +1,137 @@
 #!/usr/bin/env python
 
-import math
-
-import numpy as np
-
 import rclpy
 from rclpy.node import Node
 
-from tf2_ros import TransformBroadcaster
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+from robp_interfaces.msg import DutyCycles
+from std_msgs.msg import Bool
+from geometry_msgs.msg import Point, PoseStamped
+from tf_transformations import euler_from_quaternion
 
-from tf_transformations import quaternion_from_euler, euler_from_quaternion
-
-from geometry_msgs.msg import TransformStamped
-from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-
-from rclpy.time import Time
+import math
 
 
-
-class Odometry(Node):
+class MotionControl(Node):
 
     def __init__(self):
-        super().__init__('odometry')
+        super().__init__('motion_control')
 
-        # Initialize the transform broadcaster
-        self._tf_broadcaster = TransformBroadcaster(self)
+        self.motor_pub = self.create_publisher(DutyCycles, '/phidgets/motor/duty_cycles', 10)
+        self.reached_pub = self.create_publisher(Bool, '/target_reached', 10)
 
-        # Initialize the path publisher
-        self._path_pub = self.create_publisher(Path, 'path', 10)
-        # Store the path here
-        self._path = Path()
+        self.pose_sub = self.create_subscription(PoseStamped, 
+                                                     '/localized_pose', 
+                                                     self.pose_callback, 
+                                                     10
+                                                     )
+        self.goal_sub = self.create_subscription(
+            Point,
+            '/goal',
+            self.goal_callback,
+            10
+        )
 
-        # Subscribe to encoder topic and call callback function on each recieved message
-        self.create_subscription(
-            Encoders, '/phidgets/motor/encoders', self.encoder_callback, 10)
+        self.L = 0.30         # wheel separation (m)
 
-        # 2D pose
-        self._x = 0.0
-        self._y = 0.0
-        self._yaw = 0.0
+        # Controller gains
+        self.k_rho = 0.5
+        self.k_alpha = 1.2
+        self.v_max = 0.4
+        self.omega_max = 2.0
 
+        # Control loop
+        self.timer = self.create_timer(0.1, self.control_loop)
 
+        self.get_logger().info("Motion Control Running...")
 
-    def encoder_callback(self, msg: Encoders):
-        """Takes encoder readings and updates the odometry.
+        self.x = None
+        self.y = None
+        self.theta = None   
+        self.x_t = None
+        self.y_t = None
 
-        This function is called every time the encoders are updated (i.e., when a message is published on the '/motor/encoders' topic).
+    def wrap_to_pi(self, angle):
+        return (angle + math.pi) % (2 * math.pi) - math.pi
 
-        Your task is to update the odometry based on the encoder data in 'msg'. You are allowed to add/change things outside this function.
+    def control_loop(self):
 
-        Keyword arguments:
-        msg -- An encoders ROS message. To see more information about it 
-        run 'ros2 interface show robp_interfaces/msg/Encoders' in a terminal.
-        """
+        if self.x is None or self.theta is None or self.x_t is None:
+            return  # Wait for first pose update
 
-        # The kinematic parameters for the differential configuration
-        dt = 50 / 1000
-        ticks_per_rev = 48 * 64
-        wheel_radius = 0.04921  # TODO: Fill in
-        base = 0.296  # Measured on Sleepy
+        msg = DutyCycles()
 
-        # Ticks since last message
-        delta_ticks_left = msg.delta_encoder_left
-        delta_ticks_right = msg.delta_encoder_right
+        # Calculate errors
+        dx = self.x_t - self.x
+        dy = self.y_t - self.y
+        rho = math.sqrt(dx**2 + dy**2)
+        theta_d = math.atan2(dy, dx)
+        alpha = self.wrap_to_pi(theta_d - self.theta)
 
-        # TODO: Fill in
-        K = 2 * math.pi / ticks_per_rev
+        if rho < 0.05:
+            msg.duty_cycle_left = 0.0
+            msg.duty_cycle_right = 0.0
+            self.motor_pub.publish(msg)
 
-        D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
-        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+            # Publish target reached
+            reached_msg = Bool()
+            reached_msg.data = True
+            self.reached_pub.publish(reached_msg)
 
-        self._x = self._x + D * np.cos(self._yaw)  # TODO: Fill in
-        self._y = self._y + D * np.sin(self._yaw)  # TODO: Fill in
-        self._yaw = self._yaw + delta_theta # TODO: Fill in
-        
-        # stamp = msg.header.stamp # TODO: Fill in
-        stamp = self.get_clock().now().to_msg()
+            self.get_logger().info("Target reached!")
+            return
 
+        # Phase 1: Rotate to face the target
+        if abs(alpha) > 0.1:  # 0.1 radians ≈ 5.7 degrees threshold
+            v = 0.0
+            omega = self.k_alpha * alpha
+            omega = max(min(omega, self.omega_max), -self.omega_max)
 
-        self.broadcast_transform(stamp, self._x, self._y, self._yaw)
-        self.publish_path(stamp, self._x, self._y, self._yaw)
+            v_r = omega * self.L / 2.0
+            v_l = -omega * self.L / 2.0
+            
+            msg.duty_cycle_right = max(min(v_r / self.v_max, 1.0), -1.0)
+            msg.duty_cycle_left = max(min(v_l / self.v_max, 1.0), -1.0)
 
-    def broadcast_transform(self, stamp, x, y, yaw):
-        """Takes a 2D pose and broadcasts it as a ROS transform.
+        # Phase 2: Drive straight to target
+        else:
+            v = self.k_rho * rho
+            v = max(min(v, self.v_max), -self.v_max)
+            omega = 0.0
 
-        Broadcasts a 3D transform with z, roll, and pitch all zero. 
-        The transform is stamped with the current time and is between the frames 'odom' -> 'base_link'.
+            v_r = v
+            v_l = v
+            
+            msg.duty_cycle_right = max(min(v_r / self.v_max, 1.0), -1.0)
+            msg.duty_cycle_left = max(min(v_l / self.v_max, 1.0), -1.0)
 
-        Keyword arguments:
-        stamp -- timestamp of the transform
-        x -- x coordinate of the 2D pose
-        y -- y coordinate of the 2D pose
-        yaw -- yaw of the 2D pose (in radians)
-        """
-
-        t = TransformStamped()
-        t.header.stamp = stamp
-        t.header.frame_id = 'odom'
-        t.child_frame_id = 'base_link'
-
-        # The robot only exists in 2D, thus we set x and y translation
-        # coordinates and set the z coordinate to 0
-        t.transform.translation.x = x
-        t.transform.translation.y = y
-        t.transform.translation.z = 0.0
-
-        # For the same reason, the robot can only rotate around one axis
-        # and this why we set rotation in x and y to 0 and obtain
-        # rotation in z axis from the message
-        q = quaternion_from_euler(0.0, 0.0, yaw)
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
-
-        # Send the transformation
-        self._tf_broadcaster.sendTransform(t)
-
-    def publish_path(self, stamp, x, y, yaw):
-        """Takes a 2D pose appends it to the path and publishes the whole path.
-
-        Keyword arguments:
-        stamp -- timestamp of the transform
-        x -- x coordinate of the 2D pose
-        y -- y coordinate of the 2D pose
-        yaw -- yaw of the 2D pose (in radians)
-        """
-
-        self._path.header.stamp = stamp
-        self._path.header.frame_id = 'odom'
-
-        pose = PoseStamped()
-        pose.header = self._path.header
-
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.position.z = 0.01  # 1 cm up so it will be above ground level
-
-        q = quaternion_from_euler(0.0, 0.0, yaw)
-        pose.pose.orientation.x = q[0]
-        pose.pose.orientation.y = q[1]
-        pose.pose.orientation.z = q[2]
-        pose.pose.orientation.w = q[3]
+        self.motor_pub.publish(msg)
 
 
-        self._path.poses.append(pose)
+    def pose_callback(self, msg):
+        # Update current pose from localization
+        self.x = msg.pose.position.x
+        self.y = msg.pose.position.y
 
-        self._path_pub.publish(self._path)
+        # Where the robot is facing
+        (_, _, yaw) = euler_from_quaternion([msg.pose.orientation.x,
+                                            msg.pose.orientation.y,
+                                            msg.pose.orientation.z,
+                                            msg.pose.orientation.w])
+        self.theta = yaw
 
+    def goal_callback(self, msg):
+        self.x_t = msg.x
+        self.y_t = msg.y
+        self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
 
 def main():
     rclpy.init()
-    node = Odometry()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-
+    node = MotionControl()
+    rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
+
