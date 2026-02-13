@@ -17,8 +17,8 @@ class ArmPickup(Node):
         self.poses = {
             "HOME_OPEN": [30, 120, 90, 200, 120, 120],
             "BEND_OPEN": [30, 120, 90, 200,  70, 120],
-            "GRIP_BENT": [105,120,90,200,  70, 120],
-            "HOME_GRIP": [105, 120, 90, 200, 120, 120],
+            "GRIP_BENT": [120,120,90,200,  70, 120],
+            "HOME_GRIP": [120, 120, 90, 200, 120, 120],
         }
 
         # Assume starting at HOME_OPEN
