@@ -26,7 +26,7 @@ class GridPublisher(Node):
 
         self.resolution = 0.05  # 5cm cells
         max_x = int(np.max(self.workspace[:, 0]))
-        max_y = int(np.max(self.workspace[:, 0]))
+        max_y = int(np.max(self.workspace[:, 1]))
         self.width = int(max_x/(self.resolution))
         self.height = int(max_y/(self.resolution))
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
