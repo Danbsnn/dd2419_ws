@@ -35,10 +35,10 @@ class MotionControl(Node):
 
         # Controller gains
         self.k1 = 0.5
-        self.k2 = 2.5
-        self.k3 = 1
-        self.v_max = 0.7
-        self.omega_max = 0.7
+        self.k2 = 2.0
+        self.k3 = 5
+        self.v_max = 0.6
+        self.omega_max = 0.6
 
         # Control loop
         self.timer = self.create_timer(0.1, self.control_loop)
@@ -56,8 +56,8 @@ class MotionControl(Node):
 
     def control_loop(self):
 
-        if self.x is None or self.theta is None or self.x_t is None:
-            return  # Wait for first pose update
+        if self.x is None or self.theta is None or self.x_t is None or self.y_t is None:
+            return
 
         msg = DutyCycles()
 
@@ -68,9 +68,9 @@ class MotionControl(Node):
         theta_d = math.atan2(dy, dx)
         alpha = self.wrap_to_pi(theta_d - self.theta)
 
-        self.get_logger().info(f"Pos: ({self.x:.2f}, {self.y:.2f}, {self.theta:.2f})")
-        self.get_logger().info(f"Goal: ({self.x_t:.2f}, {self.y_t:.2f})")
-        self.get_logger().info(f"Distance: {d:.2f}, alpha: {alpha:.2f}")
+        # self.get_logger().info(f"Pos: ({self.x:.2f}, {self.y:.2f}, {self.theta:.2f})")
+        # self.get_logger().info(f"Goal: ({self.x_t:.2f}, {self.y_t:.2f})")
+        # self.get_logger().info(f"Distance: {d:.2f}, alpha: {alpha:.2f}")
 
         if d < 0.05:
             msg.duty_cycle_left = 0.0
@@ -95,23 +95,20 @@ class MotionControl(Node):
         
         omega = sign_alpha * min(self.k2 * abs(alpha), self.omega_max)
 
-        # Make sure that the robot is actually moving, i.e. dont pub to slow velocity
-        if abs(omega) < 0.3:
-            self.get_logger().info("Robot is rotating very slow.")
-
         v_r = omega * self.L / 2.0
         v_l = -omega * self.L / 2.0
 
         # Phase 2: Drive straight to target
         gradual_const = math.exp(-self.k3*abs(alpha)**2)
-        self.get_logger().info(f"Transition speed constant: {gradual_const}")
-        v = min(self.k1 * d, self.v_max) * gradual_const
+        # self.get_logger().info(f"Transition speed constant: {gradual_const}")
+        v = min(self.k1 * d, self.v_max)
         
         if d > 0.05 and v < 0.1:
             self.get_logger().info("Robot is moving too slow, so a min velocity is applied.")
             v = max(v, 0.1)
 
-        self.get_logger().info(f"Current Linear Speed: {v}")
+        v *= gradual_const
+        # self.get_logger().info(f"Current Linear Speed: {v}")
 
         v_r += v
         v_l += v
@@ -119,8 +116,7 @@ class MotionControl(Node):
         msg.duty_cycle_right = v_r
         msg.duty_cycle_left = v_l
 
-        self.get_logger().info(f"Moving with speed v_l = {v_l} and v_r = {v_r}")
-
+        # self.get_logger().info(f"Moving with speed v_l = {v_l} and v_r = {v_r}")
         self.motor_pub.publish(msg)
 
 
@@ -137,8 +133,15 @@ class MotionControl(Node):
         self.theta = yaw
 
     def goal_callback(self, msg):
-        self.x_t = msg.x
+        self.x_t = msg.x 
         self.y_t = msg.y
+        """(_, _, yaw) = euler_from_quaternion([
+                                    msg.pose.orientation.x,
+                                    msg.pose.orientation.y,
+                                    msg.pose.orientation.z,
+                                    msg.pose.orientation.w
+                                    ])
+        self.theta_t = yaw"""
         self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
 
 def main():

@@ -13,7 +13,7 @@ class RandomGoalGenerator(Node):
         super().__init__('random_goal_generator')
 
         # Publisher for goal
-        self.pub = self.create_publisher(Pose, '/goal/pose', 10)
+        self.pub = self.create_publisher(Pose, '/goal', 10)
 
         # Subscriber for robot position
         self.sub = self.create_subscription(
