@@ -103,11 +103,13 @@ ros-jazzy-learning-tf2-py = { path = "src/learning_tf2_py" }
 ros-jazzy-odometry = { path = "src/odometry" }
 ros-jazzy-display-markers = { path = "src/display_markers" }
 ros-jazzy-detection = { path = "src/detection" }
+ros-jazzy-mapping = { path = "src/mapping" }
 
 # Other
 argcomplete = ">=3.6.3,<4"
 pynput = ">=1.8.1,<2"
 pygame = ">=2.6.1,<3"
+shapely = ">=2.1.2,<3"
 
 [target.linux-64.dependencies]
 # ROS
