@@ -45,8 +45,15 @@ class GridPublisher(Node):
         m.info.origin.position.y = 0.0
         m.info.origin.position.z = 0.0
 
-        m.data = self.static_grid
+        grid = self.static_grid.copy()
+        # mark objects as occupied
+        for i, (ox, oy) in enumerate(self.object_coords):
+            if self.object_types[i] in ['O', 'B']:
+                gx, gy = int(ox/self.resolution), int(oy/self.resolution)
+                grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
+        m.data = grid.flatten().tolist()
+        
         self.map_pub.publish(m)
 
     def generate_workspace(self):
@@ -59,14 +66,8 @@ class GridPublisher(Node):
                 y = r*self.resolution
                 if self.workspace_poly.contains(ShapePoint(x, y)):
                     grid[r, c] = 0
-        
-        # mark objects as occupied
-        for i, (ox, oy) in enumerate(self.object_coords):
-            if self.object_types[i] in ['O', 'B']:
-                gx, gy = int(ox/self.resolution), int(oy/self.resolution)
-                grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
-        return grid.flatten().tolist()
+        return grid
 
 
 
