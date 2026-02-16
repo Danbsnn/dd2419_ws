@@ -12,6 +12,15 @@ class RandomGoalGenerator(Node):
     def __init__(self):
         super().__init__('random_goal_generator')
 
+        self.map_sub = self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
+            10
+        )
+        self.latest_map = None
+
+        
         # Publisher for goal
         self.pub = self.create_publisher(Pose, '/goal', 10)
 
@@ -39,6 +48,31 @@ class RandomGoalGenerator(Node):
         # Generate first goal
         self.generate_random_goal()
 
+    def map_callback(self, msg):
+        """Stores the map"""
+        self.latest_map = msg
+        # Adjust bounds
+        self.x_max = msg.info.width * msg.info.resolution
+        self.y_max = msg.info.height * msg.info.resolution
+
+    def is_point_occupied(self, x, y):
+        """Checks if a world coordinate is occupied in the current map."""
+        if self.latest_map is None:
+            return True
+        
+        info = self.latest_map.info
+        # Convert world (m) to grid indices
+        grid_x = int(x / info.resolution)
+        grid_y = int(y / info.resolution)
+
+        # Bounds check
+        if 0 <= grid_x < info.width and 0 <= grid_y < info.height:
+            index = (grid_y * info.width) + grid_x
+            value = self.latest_map.data[index]
+            # 0 is Free. Anything else (100, -1) is treated as occupied
+            return value != 0
+        return True
+
     def loc_callback(self, msg):
         x_robot = msg.position.x
         y_robot = msg.position.y
@@ -56,28 +90,28 @@ class RandomGoalGenerator(Node):
             self.generate_random_goal()
 
     def generate_random_goal(self):
-        self.goal = Pose()
+        new_x = 0.0
+        new_y = 0.0
+        valid_found = False
+        attempts = 0
+        while not valid_found and attempts < 100:
+            temp_x = random.uniform(self.x_min, self.x_max)
+            temp_y = random.uniform(self.y_min, self.y_max)
+            
+            if not self.is_point_occupied(temp_x, temp_y):
+                new_x = temp_x
+                new_y = temp_y
+                valid_found = True
+            attempts += 1
 
-        # Random point in rectangle
-        self.goal.position.x = random.uniform(self.x_min, self.x_max)
-        self.goal.position.y = random.uniform(self.y_min, self.y_max)
-        self.goal.position.z = 0.0
-
-        # Orientation (not used for now)
-        #angle = random.uniform(-math.pi, math.pi)
-        #qx, qy, qz, qw = quaternion_from_euler(0, 0, angle)
-        #self.goal.orientation.x = qx
-        #self.goal.orientation.y = qy
-        #self.goal.orientation.z = qz
-        #self.goal.orientation.w = qw
-
-        self.goal.orientation.w = 1.0 # No rotation
-
-        self.pub.publish(self.goal)
-
-        self.get_logger().info(
-            f'New goal: x={self.goal.position.x:.3f}, y={self.goal.position.y:.3f}, angle={angle:.3f}'
-        )
+        if valid_found:
+            self.goal.position.x = new_x
+            self.goal.position.y = new_y
+            self.goal.orientation.w = 1.0
+            self.pub.publish(self.goal)
+            self.get_logger().info(f'New valid goal: x={new_x:.2f}, y={new_y:.2f}')
+        else:
+            self.get_logger().error('Failed to find a valid goal after 100 attempts!')
 
 
 def main():
