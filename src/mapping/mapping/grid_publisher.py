@@ -75,6 +75,7 @@ class GridPublisher(Node):
 
             if obj_type == 'O':  # Object = Red cube
                 marker.type = Marker.CUBE
+                marker.ns = "O"
                 marker.scale.x = 0.1
                 marker.scale.y = 0.1
                 marker.scale.z = 0.1
@@ -86,6 +87,7 @@ class GridPublisher(Node):
 
             elif obj_type == 'B': # Box = Gray cube
                 marker.type = Marker.CUBE
+                marker.ns = "B"
                 marker.scale.x = 0.1
                 marker.scale.y = 0.1
                 marker.scale.z = 0.1
@@ -97,6 +99,7 @@ class GridPublisher(Node):
 
             elif obj_type == 'S': # Start = blue sphere
                 marker.type = Marker.SPHERE
+                marker.ns = "S"
                 marker.scale.x = 0.15
                 marker.scale.y = 0.1
                 marker.scale.z = 0.15
