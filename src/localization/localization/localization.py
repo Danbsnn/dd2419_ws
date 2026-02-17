@@ -17,49 +17,49 @@ class Localization(Node):
         super().__init__('localization')
 
         # Subscribe to odometry path
-        self.create_subscription(
+        """self.create_subscription(
             Path,
             '/path',
             self.path_callback,
             10
         )
-
+        
         # Publish localized pose
         self.pose_pub = self.create_publisher(
             PoseStamped,
             '/localized_pose',
             10
-        )
+        )"""
 
         # Broadcast transform for map to odom
         self.tf_broadcaster = TransformBroadcaster(self)
-
+        self.broadcast_transform()
         self.get_logger().info("Localization running")
 
 
-
-    def path_callback(self, msg):
-        """Publishes latest odometry pose in the map frame"""
-        if not msg.poses:
-            self.get_logger().info("No path available from odom")
-            return
+    
+    # def path_callback(self, msg):
+    #     """Publishes latest odometry pose in the map frame"""
+    #     if not msg.poses:
+    #         self.get_logger().info("No path available from odom")
+    #         return
         
-        latest_pose = msg.poses[-1]  # geometry_msgs/PoseStamped[] poses
+    #     latest_pose = msg.poses[-1]  # geometry_msgs/PoseStamped[] poses
         
-        localized_pose = PoseStamped()
-        localized_pose.header.stamp = latest_pose.header.stamp
-        localized_pose.header.frame_id = "map"
-        localized_pose.pose = latest_pose.pose
+    #     localized_pose = PoseStamped()
+    #     localized_pose.header.stamp = latest_pose.header.stamp
+    #     localized_pose.header.frame_id = "map"
+    #     localized_pose.pose = latest_pose.pose
 
-        self.broadcast_transform(latest_pose.header.stamp)
+    #     self.broadcast_transform(latest_pose.header.stamp)
 
-        # self.get_logger().info(f"Localized Pose")
-        self.pose_pub.publish(localized_pose)
+    #     # self.get_logger().info(f"Localized Pose")
+    #     self.pose_pub.publish(localized_pose)
 
 
-    def broadcast_transform(self, stamp):
+    def broadcast_transform(self):
         t = TransformStamped()
-        t.header.stamp = stamp
+        t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = "map"
         t.child_frame_id = "odom"
 
