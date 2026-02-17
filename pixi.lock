@@ -657,6 +657,8 @@ environments:
       - conda: src/learning_tf2_py
         build: hb0f4dca_0
       - conda: src/librealsense
+      - conda: src/lidar
+        build: hb0f4dca_0
       - conda: src/localization
         build: hb0f4dca_0
       - conda: src/mapping
@@ -668,6 +670,8 @@ environments:
       - conda: src/phidgets_drivers/libphidget22
       - conda: src/phidgets_drivers/phidgets_api
       - conda: src/phidgets_drivers/phidgets_msgs
+      - conda: src/planning
+        build: hb0f4dca_0
       - conda: src/realsense-ros/realsense2_camera
       - conda: src/realsense-ros/realsense2_camera_msgs
       - conda: src/robp_arm
@@ -1232,6 +1236,8 @@ environments:
         build: h60d57d3_0
       - conda: src/learning_tf2_py
         build: h60d57d3_0
+      - conda: src/lidar
+        build: h60d57d3_0
       - conda: src/localization
         build: h60d57d3_0
       - conda: src/mapping
@@ -1239,6 +1245,8 @@ environments:
       - conda: src/motion_control
         build: h60d57d3_0
       - conda: src/odometry
+        build: h60d57d3_0
+      - conda: src/planning
         build: h60d57d3_0
       - conda: src/robp_autocomplete
         build: h60d57d3_0
@@ -1767,6 +1775,8 @@ environments:
         build: ha41a7fa_0
       - conda: src/learning_tf2_py
         build: ha41a7fa_0
+      - conda: src/lidar
+        build: ha41a7fa_0
       - conda: src/localization
         build: ha41a7fa_0
       - conda: src/mapping
@@ -1774,6 +1784,8 @@ environments:
       - conda: src/motion_control
         build: ha41a7fa_0
       - conda: src/odometry
+        build: ha41a7fa_0
+      - conda: src/planning
         build: ha41a7fa_0
       - conda: src/robp_autocomplete
         build: ha41a7fa_0
@@ -15565,6 +15577,54 @@ packages:
   license: Apache-2.0 OR MIT
   size: 26612
   timestamp: 1768982305741
+- conda: src/lidar
+  name: ros-jazzy-lidar
+  version: 0.0.0
+  build: h60d57d3_0
+  subdir: osx-arm64
+  variants:
+    target_platform: osx-arm64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - libcxx >=21
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
+- conda: src/lidar
+  name: ros-jazzy-lidar
+  version: 0.0.0
+  build: ha41a7fa_0
+  subdir: win-64
+  variants:
+    c_compiler: vs2022
+    cxx_compiler: vs2022
+    target_platform: win-64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - vc >=14.3,<15
+  - vc14_runtime >=14.44.35208
+  - ucrt >=10.0.20348.0
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
+- conda: src/lidar
+  name: ros-jazzy-lidar
+  version: 0.0.0
+  build: hb0f4dca_0
+  subdir: linux-64
+  variants:
+    target_platform: linux-64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - libgcc >=15
+  - libgcc >=15
+  - libstdcxx >=15
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
 - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-lifecycle-msgs-2.0.3-np2py312h2ed9cc7_14.conda
   sha256: d9260b8b62217c2115b3c2d182b82c3e60eede9e27f2d0149a7a647547ea450c
   md5: 24696c77b54e41934b37fbb9b74193c1
@@ -16238,6 +16298,54 @@ packages:
   - python_abi 3.12.* *_cp312
   - numpy >=1.23,<3
   license: LicenseRef-BSD
+- conda: src/planning
+  name: ros-jazzy-planning
+  version: 0.0.0
+  build: h60d57d3_0
+  subdir: osx-arm64
+  variants:
+    target_platform: osx-arm64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - libcxx >=21
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
+- conda: src/planning
+  name: ros-jazzy-planning
+  version: 0.0.0
+  build: ha41a7fa_0
+  subdir: win-64
+  variants:
+    c_compiler: vs2022
+    cxx_compiler: vs2022
+    target_platform: win-64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - vc >=14.3,<15
+  - vc14_runtime >=14.44.35208
+  - ucrt >=10.0.20348.0
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
+- conda: src/planning
+  name: ros-jazzy-planning
+  version: 0.0.0
+  build: hb0f4dca_0
+  subdir: linux-64
+  variants:
+    target_platform: linux-64
+  depends:
+  - ros2-distro-mutex >=0.13,<0.14
+  - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - libgcc >=15
+  - libgcc >=15
+  - libstdcxx >=15
+  - python_abi 3.12.* *_cp312
+  - numpy >=1.23,<3
+  license: LicenseRef-Apache-2.0
 - conda: https://prefix.dev/robostack-jazzy/linux-64/ros-jazzy-pluginlib-5.4.4-np2py312h2ed9cc7_14.conda
   sha256: 1cda406671991a3930216562d77a6e60112a4275b6cfe6fad34288f828e070ef
   md5: 6f19d678c419bd2058f90df84b4b9569

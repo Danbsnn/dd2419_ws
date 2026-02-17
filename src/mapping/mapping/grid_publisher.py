@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import os
 from shapely.geometry import Point as ShapePoint, Polygon
@@ -12,6 +13,8 @@ class GridPublisher(Node):
         super().__init__('grid_publisher')
 
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
+        self.marker_pub = self.create_publisher(MarkerArray, '/map_objects', 10)
+        
         self.og_timer = self.create_timer(2.0, self.publish_map)
 
         workspace_path = "/home/snowwhite/dd2419_ws/src/mapping/map/workspace_1.csv"
@@ -21,12 +24,11 @@ class GridPublisher(Node):
         raw_map = np.genfromtxt(map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
         self.object_types = [row[0] for row in raw_map]
         self.object_coords = np.array([[row[1], row[2]] for row in raw_map]) * 0.01
-
-        self.get_logger().info(str(self.object_coords))
+        self.object_angles = [row[3] for row in raw_map]
 
         self.resolution = 0.05  # 5cm cells
         max_x = int(np.max(self.workspace[:, 0]))
-        max_y = int(np.max(self.workspace[:, 0]))
+        max_y = int(np.max(self.workspace[:, 1]))
         self.width = int(max_x/(self.resolution))
         self.height = int(max_y/(self.resolution))
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
@@ -45,9 +47,71 @@ class GridPublisher(Node):
         m.info.origin.position.y = 0.0
         m.info.origin.position.z = 0.0
 
-        m.data = self.static_grid
+        grid = self.static_grid.copy()
+        # mark objects as occupied
+        for i, (ox, oy) in enumerate(self.object_coords):
+            if self.object_types[i] in ['O', 'B']:
+                gx, gy = int(ox/self.resolution), int(oy/self.resolution)
+                grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
+        m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
+
+        ma = MarkerArray()
+        
+        for i, (ox, oy) in enumerate(self.object_coords):
+            obj_type = self.object_types[i]
+            
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.id = i
+            marker.action = Marker.ADD
+            
+            # Position
+            marker.pose.position.x = float(ox)
+            marker.pose.position.y = float(oy)
+            marker.pose.orientation.w = 1.0
+
+            if obj_type == 'O':  # Object = Red cube
+                marker.type = Marker.CUBE
+                marker.scale.x = 0.1
+                marker.scale.y = 0.1
+                marker.scale.z = 0.1
+                marker.pose.position.z = 0.05
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+                marker.color.a = 1.0
+
+            elif obj_type == 'B': # Box = Gray cube
+                marker.type = Marker.CUBE
+                marker.scale.x = 0.1
+                marker.scale.y = 0.1
+                marker.scale.z = 0.1
+                marker.pose.position.z = 0.05
+                marker.color.r = 0.8
+                marker.color.g = 0.8
+                marker.color.b = 0.8
+                marker.color.a = 1.0
+
+            elif obj_type == 'S': # Start = blue sphere
+                marker.type = Marker.SPHERE
+                marker.scale.x = 0.15
+                marker.scale.y = 0.1
+                marker.scale.z = 0.15
+                marker.pose.position.z = 0.0
+                marker.color.r = 0.0
+                marker.color.g = 0.0
+                marker.color.b = 1.0
+                marker.color.a = 0.8 
+
+            ma.markers.append(marker)
+        
+        self.marker_pub.publish(ma)
+        
+        # Publish the array
+        self.marker_pub.publish(ma)
 
     def generate_workspace(self):
         self.workspace_poly = Polygon(self.workspace)
@@ -59,14 +123,8 @@ class GridPublisher(Node):
                 y = r*self.resolution
                 if self.workspace_poly.contains(ShapePoint(x, y)):
                     grid[r, c] = 0
-        
-        # mark objects as occupied
-        for i, (ox, oy) in enumerate(self.object_coords):
-            if self.object_types[i] in ['O', 'B']:
-                gx, gy = int(ox/self.resolution), int(oy/self.resolution)
-                grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
-        return grid.flatten().tolist()
+        return grid
 
 
 

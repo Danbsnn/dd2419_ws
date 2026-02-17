@@ -93,6 +93,9 @@ ros-jazzy-arm-pick = { path = "src/arm_pick" }
 ros-jazzy-localization = { path = "src/localization"}
 ros-jazzy-motion-control = { path = "src/motion_control"}
 
+ros-jazzy-planning = {path = "src/planning"}
+ros-jazzy-lidar = {path = "src/lidar"}
+
 ros-jazzy-robp-autocomplete = { path = "src/robp_autocomplete" }
 ros-jazzy-robp-boot-camp-launch = { path = "src/robp_boot_camp_launch" }
 ros-jazzy-robp-interfaces = { path = "src/robp_interfaces" }
@@ -104,6 +107,7 @@ ros-jazzy-odometry = { path = "src/odometry" }
 ros-jazzy-display-markers = { path = "src/display_markers" }
 ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
+
 
 # Other
 argcomplete = ">=3.6.3,<4"
