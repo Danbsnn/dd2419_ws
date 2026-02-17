@@ -8,7 +8,6 @@ from geometry_msgs.msg import TransformStamped, PoseStamped
 from nav_msgs.msg import Path
 
 from tf2_ros import TransformBroadcaster
-from geometry_msgs.msg import PoseStamped
 from tf_transformations import quaternion_from_euler
 
 
