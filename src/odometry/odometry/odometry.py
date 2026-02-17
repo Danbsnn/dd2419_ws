@@ -30,9 +30,15 @@ class Odometry(Node):
         self._tf_broadcaster = TransformBroadcaster(self)
 
         # Initialize the path publisher
-        self._path_pub = self.create_publisher(Path, 'path', 10)
+        # self._path_pub = self.create_publisher(Path, 'path', 10)
         # Store the path here
-        self._path = Path()
+        # self._path = Path()
+
+        self.pose_pub = self.create_publisher(
+            PoseStamped,
+            '/localized_pose',
+            10
+        )
 
         # Subscribe to encoder topic and call callback function on each recieved message
         self.create_subscription(
@@ -43,7 +49,7 @@ class Odometry(Node):
         self._y = 0.0
         self._yaw = 0.0
 
-
+                    qqq    2122e1
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -146,9 +152,10 @@ class Odometry(Node):
         pose.pose.orientation.z = q[2]
         pose.pose.orientation.w = q[3]
 
-        self._path.poses.append(pose)
+        # self._path.poses.append(pose)
 
-        self._path_pub.publish(self._path)
+        # self._path_pub.publish(self._path)
+        self.pose_pub.publish(localized_pose)   
 
 
 def main():
