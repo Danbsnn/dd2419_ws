@@ -1,24 +1,18 @@
 #!/usr/bin/env python
 
 import math
-
 import numpy as np
 
 import rclpy
 from rclpy.node import Node
 
 from tf2_ros import TransformBroadcaster
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
-
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped
 from robp_interfaces.msg import Encoders
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-
-from rclpy.time import Time
-
+from sensor_msgs.msg import Imu
 
 
 class Odometry(Node):
@@ -44,12 +38,36 @@ class Odometry(Node):
         self.create_subscription(
             Encoders, '/phidgets/motor/encoders', self.encoder_callback, 10)
 
+        self.create_subscription(
+            Imu, 
+            'imu/data_raw',  # Topic defined in spatial.cpp
+            self.imu_callback, 
+            qos
+        )
+        
         # 2D pose
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
 
-                    qqq    2122e1
+        # IMU variables
+        self._current_imu_yaw = None
+        self._initial_imu_yaw = None
+
+    def imu_callback(self, msg: Imu):
+        """Updates the current yaw based on IMU data."""
+        q = [
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
+        ]
+        (_, _, yaw) = euler_from_quaternion(q)
+        self._current_imu_yaw = yaw
+        
+        if self._initial_imu_yaw is None:
+            self._initial_imu_yaw = self._current_imu_yaw
+        
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -64,7 +82,6 @@ class Odometry(Node):
         """
 
         # The kinematic parameters for the differential configuration
-        dt = 50 / 1000
         ticks_per_rev = 48 * 64
         wheel_radius = 0.04921  # TODO: Fill in
         base = 0.3  # Measured on Snowwhite
@@ -73,19 +90,21 @@ class Odometry(Node):
         delta_ticks_left = msg.delta_encoder_left
         delta_ticks_right = msg.delta_encoder_right
 
-        # TODO: Fill in
         K = 2 * math.pi / ticks_per_rev
-
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
-        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+
+        if self._curent_imu_yaw is not None:
+            self._yaw = self._current_imu_yaw - self._initial_imu_yaw
+            self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
+        else:
+            delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+            self._yaw = self._yaw + delta_theta
 
         self._x = self._x + D * np.cos(self._yaw)  # TODO: Fill in
         self._y = self._y + D * np.sin(self._yaw)  # TODO: Fill in
-        self._yaw = self._yaw + delta_theta # TODO: Fill in
         
         # stamp = msg.header.stamp # TODO: Fill in
         stamp = self.get_clock().now().to_msg()
-
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_path(stamp, self._x, self._y, self._yaw)
