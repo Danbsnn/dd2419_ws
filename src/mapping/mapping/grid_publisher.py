@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
+from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import os
 from shapely.geometry import Point as ShapePoint, Polygon
