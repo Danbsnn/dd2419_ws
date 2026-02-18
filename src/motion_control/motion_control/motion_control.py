@@ -8,6 +8,11 @@ from std_msgs.msg import Bool
 from geometry_msgs.msg import Point, PoseStamped
 from tf_transformations import euler_from_quaternion
 
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+import tf2_geometry_msgs
+
 import math
 
 
@@ -18,6 +23,9 @@ class MotionControl(Node):
 
         self.motor_pub = self.create_publisher(DutyCycles, '/phidgets/motor/duty_cycles', 10)
         self.reached_pub = self.create_publisher(Bool, '/target_reached', 10)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.pose_sub = self.create_subscription(PoseStamped, 
                                 '/localized_pose', 
@@ -30,6 +38,11 @@ class MotionControl(Node):
                                 self.goal_callback,
                                 10
                             )
+
+        self.goal_pose_sub = self.create_subscription(PoseStamped,
+                                                '/goal_pose',
+                                                self.goal_pose_callback,
+                                                10)
 
         self.L = 0.30         # wheel separation (m)
 
@@ -47,15 +60,47 @@ class MotionControl(Node):
 
         self.x = None
         self.y = None
-        self.theta = None   
+        self.theta = None  
+        self.robot_frame = None
         self.x_t = None
         self.y_t = None
 
     def wrap_to_pi(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
 
-    def control_loop(self):
+    def transform_pose(self, input_pose, target_frame):
+        """Helper-function to transform any pose to the robot's current frame"""
+        try:
+            if not self.tf_buffer.can_transform(target_frame, input_pose.header.frame_id, rclpy.time.Time()):
+                self.get_logger().warn(f'Transform from {input_pose.header.frame_id} to {target_frame} not ready')
+                return None
 
+            transform = self.tf_buffer.lookup_transform(
+                target_frame,
+                input_pose.header.frame_id,
+                rclpy.time.Time()
+            )
+            
+            # Perform the magic math
+            pose_transformed = tf2_geometry_msgs.do_transform_pose(input_pose, transform)
+            return pose_transformed
+            
+        except TransformException as ex:
+            self.get_logger().error(f'Could not transform: {ex}')
+            return None
+
+    def pose_callback(self, msg):
+        self.robot_frame = msg.header.frame_id # 'odom'
+        self.x = msg.pose.position.x
+        self.y = msg.pose.position.y
+
+        (_, _, yaw) = euler_from_quaternion([msg.pose.orientation.x,
+                                             msg.pose.orientation.y,
+                                             msg.pose.orientation.z,
+                                             msg.pose.orientation.w])
+        self.theta = yaw
+
+    def control_loop(self):
         if self.x is None or self.theta is None or self.x_t is None or self.y_t is None:
             return
 
@@ -120,18 +165,6 @@ class MotionControl(Node):
         self.motor_pub.publish(msg)
 
 
-    def pose_callback(self, msg):
-        # Update current pose from localization
-        self.x = msg.pose.position.x
-        self.y = msg.pose.position.y
-
-        # Where the robot is facing
-        (_, _, yaw) = euler_from_quaternion([msg.pose.orientation.x,
-                                            msg.pose.orientation.y,
-                                            msg.pose.orientation.z,
-                                            msg.pose.orientation.w])
-        self.theta = yaw
-
     def goal_callback(self, msg):
         self.x_t = msg.x 
         self.y_t = msg.y
@@ -143,6 +176,27 @@ class MotionControl(Node):
                                     ])
         self.theta_t = yaw"""
         self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
+
+    def goal_pose_callback(self, msg):
+        """New callback: Handles transforms automatically!"""
+        if self.robot_frame is None:
+            self.get_logger().warn("Cannot set goal yet; robot state unknown!")
+            return
+
+        # If the goal frame is different from odom
+        if msg.header.frame_id != self.robot_frame:
+            self.get_logger().info(f"Transforming goal from {msg.header.frame_id} to {self.robot_frame}...")
+            transformed_goal = self.transform_pose(msg, self.robot_frame)
+            
+            if transformed_goal:
+                self.x_t = transformed_goal.pose.position.x
+                self.y_t = transformed_goal.pose.position.y
+                self.get_logger().info(f"New goal (Transformed): ({self.x_t:.2f}, {self.y_t:.2f})")
+        else:
+            # Already in the right frame
+            self.x_t = msg.pose.position.x
+            self.y_t = msg.pose.position.y
+            self.get_logger().info(f"New goal (Native): ({self.x_t:.2f}, {self.y_t:.2f})")
 
 def main():
     rclpy.init()
