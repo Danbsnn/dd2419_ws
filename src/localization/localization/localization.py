@@ -33,7 +33,7 @@ class Localization(Node):
 
         # Broadcast transform for map to odom
         self.tf_broadcaster = TransformBroadcaster(self)
-        self.broadcast_transform()
+        self.timer = self.create_timer(0.1, self.broadcast_transform)
         self.get_logger().info("Localization running")
 
 
