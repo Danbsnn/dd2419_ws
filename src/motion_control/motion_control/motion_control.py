@@ -34,9 +34,9 @@ class MotionControl(Node):
         self.L = 0.30         # wheel separation (m)
 
         # Controller gains
-        self.k1 = 0.5
-        self.k2 = 2.0
-        self.k3 = 5
+        self.k1 = 0.5  # Velocity constant
+        self.k2 = 2.0  # Angle
+        self.k3 = 5  # Angle to velo constant
         self.v_max = 0.6
         self.omega_max = 0.6
 
