@@ -1,14 +1,18 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import rclpy
 from rclpy.node import Node
 import numpy as np
 import random
 
+# newwwwwwwwwwwwwwwwwwwww
+
 from geometry_msgs.msg import PoseStamped, Point 
 from nav_msgs.msg import OccupancyGrid, Path
 import heapq   # priority queue for A*
 import math 
+from tf2_ros import TransformBroadcaster
+
 """
 Exploration Path Planner
 
@@ -48,14 +52,14 @@ class PathPlanner(Node):
         # publisher (motion control) next waypoint for controller
         self.point_pub = self.create_publisher(
             Point,
-            '/next_point',
+            '/path',
             10
         )
 
-        # (input)Subscriber to occupancy grid map
+        # (input)Subscriber to occupancy grid map from mapping node
         self.create_subscription(
             OccupancyGrid,
-            '/map',
+            '/occ_grid',
             self.map_callback,
             10
         )
@@ -69,11 +73,12 @@ class PathPlanner(Node):
         # Subscriber to exploration / user goal
         self.create_subscription(
             Point,
-            '/goal',
+            '/next_point',
             self.goal_callback,
             10
         )
 
+        self.tf_broadcaster = TransformBroadcaster(self)
         # timer to send waypoints
         self.timer = self.create_timer(0.2, self.control_loop)
         self.get_logger().info("Path planner started")
@@ -116,11 +121,8 @@ class PathPlanner(Node):
         runs A*, stores path.
         """
         # ensure we have all required data
-        if self.grid is None:
-            return
-        if self.robot_pose is None:
-            return
-        if self.goal is None:
+        if self.grid is None or self.robot_pose is None or self.goal is None:
+            self.get_logger().warn("Missing data for planning")
             return
         
         # convert robot positon -> grid coordinates
@@ -146,8 +148,6 @@ class PathPlanner(Node):
         self.publish_path(path)
 
         self.get_logger().info(f"Planned path with {len(path)} points")
-        self.get_logger().info(f"Start: {start}, Goal: {goal}")
-
           
         
     # timer, Control loop 
@@ -232,21 +232,21 @@ class PathPlanner(Node):
             for dx, dy in neighbors:
                 ny = current[0] + dy
                 nx = current[1] + dx
-                # check boundaries
-                if ny < 0 or nx < 0 or ny >= self.height or nx >= self.width:
-                    continue
-                # skip obstacles 
-                if self.grid[ny, nx] != 0:
-                    continue
+            # check boundaries
+            if ny < 0 or nx < 0 or ny >= self.height or nx >= self.width:
+                continue
+            # skip obstacles 
+            if self.grid[ny, nx] != 0:
+                continue
 
-                neightbor = (ny, nx)
-                tentative_g_cost = g_cost[current] + 1
-                # better path found
-                if neightbor not in g_cost or tentative_g_cost < g_cost[neightbor]:
-                    came_from[neightbor] = current
-                    g_cost[neightbor] = tentative_g_cost
-                    f = tentative_g_cost + heuristic(neightbor, goal)
-                    heapq.heappush(open_set, (f, neightbor))
+            neightbor = (ny, nx)
+            tentative_g_cost = g_cost[current] + 1
+            # better path found
+            if neightbor not in g_cost or tentative_g_cost < g_cost[neightbor]:
+                came_from[neightbor] = current
+                g_cost[neightbor] = tentative_g_cost
+                f = tentative_g_cost + heuristic(neightbor, goal)
+                heapq.heappush(open_set, (f, neightbor))
 
         return None
     
