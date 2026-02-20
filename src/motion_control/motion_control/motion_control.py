@@ -186,7 +186,7 @@ class MotionControl(Node):
         # If the goal frame is different from odom
         if msg.header.frame_id != self.robot_frame:
             self.get_logger().info(f"Transforming goal from {msg.header.frame_id} to {self.robot_frame}...")
-            transformed_goal = self.transform_pose(msg, self.robot_frame)
+         
             
             if transformed_goal:
                 self.x_t = transformed_goal.pose.position.x
@@ -208,6 +208,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
