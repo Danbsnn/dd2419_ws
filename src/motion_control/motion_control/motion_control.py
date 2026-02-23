@@ -7,7 +7,6 @@ from robp_interfaces.msg import DutyCycles
 from std_msgs.msg import Bool
 from geometry_msgs.msg import Point, PoseStamped
 from tf_transformations import euler_from_quaternion
-
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
@@ -38,18 +37,18 @@ class MotionControl(Node):
                                 self.goal_callback,
                                 10
                             )
-
         self.goal_pose_sub = self.create_subscription(PoseStamped,
                                                 '/goal_pose',
                                                 self.goal_pose_callback,
                                                 10)
+        
 
         self.L = 0.30         # wheel separation (m)
 
         # Controller gains
-        self.k1 = 0.5
-        self.k2 = 2.0
-        self.k3 = 5
+        self.k1 = 0.5  # Velocity constant
+        self.k2 = 2.0  # Angle
+        self.k3 = 5  # Angle to velo constant
         self.v_max = 0.6
         self.omega_max = 0.6
 
@@ -60,16 +59,16 @@ class MotionControl(Node):
 
         self.x = None
         self.y = None
-        self.theta = None  
+        self.theta = None   
         self.robot_frame = None
         self.x_t = None
         self.y_t = None
+        self.theta_t = None
 
     def wrap_to_pi(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
 
     def transform_pose(self, input_pose, target_frame):
-        """Helper-function to transform any pose to the robot's current frame"""
         try:
             if not self.tf_buffer.can_transform(target_frame, input_pose.header.frame_id, rclpy.time.Time()):
                 self.get_logger().warn(f'Transform from {input_pose.header.frame_id} to {target_frame} not ready')
@@ -80,27 +79,19 @@ class MotionControl(Node):
                 input_pose.header.frame_id,
                 rclpy.time.Time()
             )
-            
-            # Perform the magic math
-            pose_transformed = tf2_geometry_msgs.do_transform_pose(input_pose, transform)
-            return pose_transformed
+            pose_transformed = tf2_geometry_msgs.do_transform_pose(input_pose.pose, transform)
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = target_frame
+            pose_stamped.header.stamp = self.get_clock().now().to_msg()
+            pose_stamped.pose = pose_transformed
+            return pose_stamped
             
         except TransformException as ex:
             self.get_logger().error(f'Could not transform: {ex}')
             return None
 
-    def pose_callback(self, msg):
-        self.robot_frame = msg.header.frame_id # 'odom'
-        self.x = msg.pose.position.x
-        self.y = msg.pose.position.y
-
-        (_, _, yaw) = euler_from_quaternion([msg.pose.orientation.x,
-                                             msg.pose.orientation.y,
-                                             msg.pose.orientation.z,
-                                             msg.pose.orientation.w])
-        self.theta = yaw
-
     def control_loop(self):
+
         if self.x is None or self.theta is None or self.x_t is None or self.y_t is None:
             return
 
@@ -121,16 +112,35 @@ class MotionControl(Node):
             msg.duty_cycle_left = 0.0
             msg.duty_cycle_right = 0.0
             self.motor_pub.publish(msg)
-
+            
             # Publish target reached
             reached_msg = Bool()
             reached_msg.data = True
             self.reached_pub.publish(reached_msg)
-
+            
             self.get_logger().info("Target reached!")
             self.x_t = None
             self.y_t = None
             return
+        
+        if self.theta_t is not None:
+                # Rotate to desired angle
+                alpha = self.theta - self.theta_t
+                if abs(alpha) > 0.1:
+                    if alpha < 0:
+                        sign = -1
+                    else:
+                        sign = 1
+                    omega = sign*min(self.k2 * abs(alpha), self.omega_max), 0.1
+                    # Apply a minimum speed so it doesn't get stuck
+                    if abs(omega) < 0.15:
+                        omega = sign * 0.15
+
+                    msg.duty_cycle_right = omega * self.L / 2.0
+                    msg.duty_cycle_left = -omega * self.L / 2.0
+                else:
+                    self.get_logger().info("Final orientation reached!")
+                    self.theta_t = None
 
         # Phase 1: Rotate to face the target
         if alpha < 0:
@@ -165,6 +175,19 @@ class MotionControl(Node):
         self.motor_pub.publish(msg)
 
 
+    def pose_callback(self, msg):
+        # Update current pose from localization
+        self.robot_frame = msg.header.frame_id # 'odom'
+        self.x = msg.pose.position.x
+        self.y = msg.pose.position.y
+
+        # Where the robot is facing
+        (_, _, yaw) = euler_from_quaternion([msg.pose.orientation.x,
+                                            msg.pose.orientation.y,
+                                            msg.pose.orientation.z,
+                                            msg.pose.orientation.w])
+        self.theta = yaw
+
     def goal_callback(self, msg):
         self.x_t = msg.x 
         self.y_t = msg.y
@@ -178,7 +201,6 @@ class MotionControl(Node):
         self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
 
     def goal_pose_callback(self, msg):
-        """New callback: Handles transforms automatically!"""
         if self.robot_frame is None:
             self.get_logger().warn("Cannot set goal yet; robot state unknown!")
             return
@@ -186,17 +208,19 @@ class MotionControl(Node):
         # If the goal frame is different from odom
         if msg.header.frame_id != self.robot_frame:
             self.get_logger().info(f"Transforming goal from {msg.header.frame_id} to {self.robot_frame}...")
-         
+            msg = self.transform_pose(msg, self.robot_frame)
+ 
+        self.x_t = msg.pose.position.x
+        self.y_t = msg.pose.position.y
+        (_, _, yaw) = euler_from_quaternion([
+                                    msg.pose.orientation.x,
+                                    msg.pose.orientation.y,
+                                    msg.pose.orientation.z,
+                                    msg.pose.orientation.w
+                                    ])
+        self.theta_t = yaw
+        self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
             
-            if transformed_goal:
-                self.x_t = transformed_goal.pose.position.x
-                self.y_t = transformed_goal.pose.position.y
-                self.get_logger().info(f"New goal (Transformed): ({self.x_t:.2f}, {self.y_t:.2f})")
-        else:
-            # Already in the right frame
-            self.x_t = msg.pose.position.x
-            self.y_t = msg.pose.position.y
-            self.get_logger().info(f"New goal (Native): ({self.x_t:.2f}, {self.y_t:.2f})")
 
 def main():
     rclpy.init()
@@ -208,9 +232,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
 
 
