@@ -16,7 +16,7 @@ launch:
         - name: "camera_name"
           value: "arm_camera"
         - name: "pixel_format"
-          value: "yuyv"
+          value: "yuyv2rgb"
         - name: "framerate"
           value: 30.0
         - name: "image_width"
