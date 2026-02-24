@@ -7,10 +7,16 @@ from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import os
 from shapely.geometry import Point as ShapePoint, Polygon
+from tf_transformations import quaternion_from_euler
+
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 
 class GridPublisher(Node):
     def __init__(self):
         super().__init__('grid_publisher')
+
+        self.tf_broadcaster = TransformBroadcaster(self)
 
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/map_objects', 10)
@@ -53,6 +59,24 @@ class GridPublisher(Node):
             if self.object_types[i] in ['O', 'B']:
                 gx, gy = int(ox/self.resolution), int(oy/self.resolution)
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
+
+                t = TransformStamped()
+                t.header.stamp = self.get_clock().now().to_msg()
+                t.header.frame_id = 'map'
+
+                t.child_frame_id = f"{self.object_types[i]}_{i}"
+            
+                t.transform.translation.x = float(ox)
+                t.transform.translation.y = float(oy)
+                t.transform.translation.z = 0.0
+
+                q = quaternion_from_euler(0.0, 0.0, self.object_angles[i])
+                t.transform.rotation.x = q[0]
+                t.transform.rotation.y = q[1]
+                t.transform.rotation.z = q[2]
+                t.transform.rotation.w = q[3]
+        
+                self.tf_broadcaster.sendTransform(t)
 
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
