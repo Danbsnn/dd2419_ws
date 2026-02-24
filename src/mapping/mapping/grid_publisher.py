@@ -126,8 +126,6 @@ class GridPublisher(Node):
 
     def publish_objects(self):
         static_transforms = []
-        box_index = 1
-        object_index = 1
 
         for i, (ox, oy) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
@@ -136,11 +134,9 @@ class GridPublisher(Node):
                 t.header.frame_id = 'map'
 
                 if self.object_types[i] == 'B':
-                    t.child_frame_id = f"Box_{box_index}"
-                    box_index += 1
+                    t.child_frame_id = f"Box_{i}"
                 elif self.object_types[i] == 'O':
-                    t.child_frame_id = f"Cube_{box_index}"
-                    object_index += 1
+                    t.child_frame_id = f"Cube_{i}"
             
                 t.transform.translation.x = float(ox)
                 t.transform.translation.y = float(oy)
