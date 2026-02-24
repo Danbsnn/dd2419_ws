@@ -5,7 +5,7 @@ from rclpy.node import Node
 import numpy as np
 import random
 
-# newwwwwwwwwwwwwwwwwwwww
+
 
 from geometry_msgs.msg import PoseStamped, Point 
 from nav_msgs.msg import OccupancyGrid, Path
