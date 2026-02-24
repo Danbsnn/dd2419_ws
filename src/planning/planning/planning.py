@@ -4,9 +4,6 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 import random
-
-
-
 from geometry_msgs.msg import PoseStamped, Point 
 from nav_msgs.msg import OccupancyGrid, Path
 import heapq   # priority queue for A*
@@ -291,10 +288,6 @@ def main():
     node = PathPlanner()
     rclpy.spin(node)
     rclpy.shutdown()
-
-
 if __name__ == '__main__':
     main()
-
-    
 
