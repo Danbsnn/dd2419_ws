@@ -107,6 +107,7 @@ ros-jazzy-odometry = { path = "src/odometry" }
 ros-jazzy-display-markers = { path = "src/display_markers" }
 ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
+ros-jazzy-navigation = { path = "src/navigation" }
 
 
 # Other

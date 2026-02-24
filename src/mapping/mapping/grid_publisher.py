@@ -7,10 +7,16 @@ from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import os
 from shapely.geometry import Point as ShapePoint, Polygon
+from tf_transformations import quaternion_from_euler
+
+from tf2_ros import StaticTransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 
 class GridPublisher(Node):
     def __init__(self):
         super().__init__('grid_publisher')
+
+        self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/map_objects', 10)
@@ -34,6 +40,8 @@ class GridPublisher(Node):
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
         self.static_grid = self.generate_workspace()
+
+        self.publish_objects()
 
     def publish_map(self):
         m = OccupancyGrid()
@@ -115,6 +123,35 @@ class GridPublisher(Node):
         
         # Publish the array
         self.marker_pub.publish(ma)
+
+    def publish_objects(self):
+        static_transforms = []
+
+        for i, (ox, oy) in enumerate(self.object_coords):
+            if self.object_types[i] in ['O', 'B']:
+                t = TransformStamped()
+                t.header.stamp = self.get_clock().now().to_msg()
+                t.header.frame_id = 'map'
+
+                if self.object_types[i] == 'B':
+                    t.child_frame_id = f"Box_{i}"
+                elif self.object_types[i] == 'O':
+                    t.child_frame_id = f"Cube_{i}"
+            
+                t.transform.translation.x = float(ox)
+                t.transform.translation.y = float(oy)
+                t.transform.translation.z = 0.0
+
+                q = quaternion_from_euler(0.0, 0.0, self.object_angles[i])
+                t.transform.rotation.x = q[0]
+                t.transform.rotation.y = q[1]
+                t.transform.rotation.z = q[2]
+                t.transform.rotation.w = q[3]
+        
+                static_transforms.append(t)
+
+            self.tf_static_broadcaster.sendTransform(static_transforms)
+
 
     def generate_workspace(self):
         self.workspace_poly = Polygon(self.workspace)

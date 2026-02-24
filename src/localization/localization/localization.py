@@ -63,8 +63,8 @@ class Localization(Node):
         t.header.frame_id = "map"
         t.child_frame_id = "odom"
 
-        t.transform.translation.x = 0.0
-        t.transform.translation.y = 0.0
+        t.transform.translation.x = 0.49
+        t.transform.translation.y = 0.50
         t.transform.translation.z = 0.0
 
         t.transform.rotation.x = 0.0
