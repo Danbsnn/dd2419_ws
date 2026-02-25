@@ -54,6 +54,9 @@ class Odometry(Node):
         self._current_imu_yaw = None
         self._initial_imu_yaw = None
 
+        self.left_encoder = 0
+        self.right_encoder = 0
+
     def imu_callback(self, msg: Imu):
         """Updates the current yaw based on IMU data."""
         q = [
@@ -87,8 +90,12 @@ class Odometry(Node):
         base = 0.3  # Measured on Snowwhite
 
         # Ticks since last message
-        delta_ticks_left = msg.delta_encoder_left
-        delta_ticks_right = msg.delta_encoder_right
+        old_left_enc = self.left_encoder
+        old_right_enc = self.right_encoder
+        self.left_encoder = msg.encoder_left
+        self.right_encoder = msg.delta_encoder_right
+        delta_encoder_left = old_left_enc - self.left_encoder
+        delta_encoder_right = old_right_enc - self.right_encoder
 
         K = 2 * math.pi / ticks_per_rev
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
