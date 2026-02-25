@@ -150,7 +150,7 @@ class GridPublisher(Node):
         
                 static_transforms.append(t)
 
-            self.tf_static_broadcaster.sendTransform(static_transforms)
+        self.tf_static_broadcaster.sendTransform(static_transforms)
 
 
     def generate_workspace(self):
