@@ -31,9 +31,13 @@ class Navigation(Node):
             if marker.ns == "O":
                 goal = PoseStamped()
                 goal.header = marker.header
-                goal.pose.position.x = marker.pose.position.x
+                goal.pose.position.x = marker.pose.position.x - 0.2
                 goal.pose.position.y = marker.pose.position.y
                 goal.pose.position.z = 0.0
+                goal.pose.orientation.x = 0.0
+                goal.pose.orientation.y = 0.0
+                goal.pose.orientation.z = 0.0
+                goal.pose.orientation.w = 1.0
 
                 self.goal_pub.publish(goal)
                 
@@ -50,6 +54,6 @@ def main():
     rclpy.spin(node)
     rclpy.shutdown()
 
-
+    
 if __name__ == '__main__':
     main()

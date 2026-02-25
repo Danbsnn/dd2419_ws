@@ -46,10 +46,10 @@ class MotionControl(Node):
         self.L = 0.30         # wheel separation (m)
 
         # Controller gains
-        self.k1 = 0.5  # Velocity constant
+        self.k1 = 0.6  # Velocity constant
         self.k2 = 2.0  # Angle
         self.k3 = 5  # Angle to velo constant
-        self.v_max = 0.6
+        self.v_max = 0.5
         self.omega_max = 0.6
 
         # Control loop
@@ -63,6 +63,7 @@ class MotionControl(Node):
         self.robot_frame = None
         self.x_t = None
         self.y_t = None
+        self.theta_t = None
 
     def wrap_to_pi(self, angle):
         return (angle + math.pi) % (2 * math.pi) - math.pi
@@ -90,12 +91,33 @@ class MotionControl(Node):
             return None
 
     def control_loop(self):
-
         if self.x is None or self.theta is None or self.x_t is None or self.y_t is None:
+            if self.theta_t is not None:
+                self.get_logger().info("Target reached, rotating now!")
+                msg = DutyCycles()
+                alpha = self.wrap_to_pi(self.theta_t - self.theta)
+                if abs(alpha) > 0.1:
+                    if alpha < 0:
+                        sign = -1
+                    else:
+                        sign = 1
+                    # omega = sign*min(self.k2 * abs(alpha), self.omega_max)
+                    # Apply a minimum speed so it doesn't get stuck
+                    # if abs(omega) < 0.15:
+                    omega = sign * 0.5
+                    self.get_logger().info(f"omega: {omega}")
+                    msg.duty_cycle_right = omega * self.L / 2.0
+                    msg.duty_cycle_left = -omega * self.L / 2.0
+                    self.motor_pub.publish(msg)
+                else:
+                    msg.duty_cycle_left = 0.0
+                    msg.duty_cycle_right = 0.0
+                    self.motor_pub.publish(msg)
+                    self.get_logger().info("Final orientation reached!")
+                    self.theta_t = None
             return
 
         msg = DutyCycles()
-
         # Calculate errors
         dx = self.x_t - self.x
         dy = self.y_t - self.y
@@ -103,9 +125,7 @@ class MotionControl(Node):
         theta_d = math.atan2(dy, dx)
         alpha = self.wrap_to_pi(theta_d - self.theta)
 
-        # self.get_logger().info(f"Pos: ({self.x:.2f}, {self.y:.2f}, {self.theta:.2f})")
-        # self.get_logger().info(f"Goal: ({self.x_t:.2f}, {self.y_t:.2f})")
-        # self.get_logger().info(f"Distance: {d:.2f}, alpha: {alpha:.2f}")
+        self.get_logger().info(f"d: {d}")
 
         if d < 0.05:
             msg.duty_cycle_left = 0.0
@@ -117,7 +137,9 @@ class MotionControl(Node):
             reached_msg.data = True
             self.reached_pub.publish(reached_msg)
 
-            self.get_logger().info("Target reached!")
+            self.get_logger().info("Target Reached!")
+            
+            self.finished = True
             self.x_t = None
             self.y_t = None
             return
@@ -188,16 +210,17 @@ class MotionControl(Node):
         # If the goal frame is different from odom
         if msg.header.frame_id != self.robot_frame:
             self.get_logger().info(f"Transforming goal from {msg.header.frame_id} to {self.robot_frame}...")
-            transformed_goal = self.transform_pose(msg, self.robot_frame)
-            
-            if transformed_goal:
-                self.x_t = transformed_goal.pose.position.x
-                self.y_t = transformed_goal.pose.position.y
-                self.get_logger().info(f"New goal (Transformed): ({self.x_t:.2f}, {self.y_t:.2f})")
-        else:
-            self.x_t = msg.pose.position.x
-            self.y_t = msg.pose.position.y
-            self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
+            msg = self.transform_pose(msg, self.robot_frame)
+        self.x_t = msg.pose.position.x
+        self.y_t = msg.pose.position.y
+        (_, _, yaw) = euler_from_quaternion([
+                                    msg.pose.orientation.x,
+                                    msg.pose.orientation.y,
+                                    msg.pose.orientation.z,
+                                    msg.pose.orientation.w
+                                    ])
+        self.theta_t = yaw
+        self.get_logger().info(f"New goal: ({self.x_t:.2f}, {self.y_t:.2f})")
 
 def main():
     rclpy.init()
