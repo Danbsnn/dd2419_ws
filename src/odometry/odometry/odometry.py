@@ -83,7 +83,7 @@ class Odometry(Node):
 
         # The kinematic parameters for the differential configuration
         ticks_per_rev = 48 * 64
-        wheel_radius = 0.04921  # TODO: Fill in
+        wheel_radius = 0.04921
         base = 0.3  # Measured on Snowwhite
 
         # Ticks since last message
@@ -93,17 +93,20 @@ class Odometry(Node):
         K = 2 * math.pi / ticks_per_rev
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
+        old_yaw = self._yaw
         if self._current_imu_yaw is not None:
             self._yaw = self._current_imu_yaw - self._initial_imu_yaw
-            self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
+            self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw)) # normalization
+            avg_yaw = (old_yaw + self._yaw) / 2.0
         else:
             delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+            avg_yaw = self._yaw + delta_theta / 2.0
             self._yaw = self._yaw + delta_theta
 
-        self._x = self._x + D * np.cos(self._yaw)  # TODO: Fill in
-        self._y = self._y + D * np.sin(self._yaw)  # TODO: Fill in
+        self._x = self._x + D * np.cos(avg_yaw)
+        self._y = self._y + D * np.sin(avg_yaw) 
         
-        # stamp = msg.header.stamp # TODO: Fill in
+        # stamp = msg.header.stamp
         stamp = self.get_clock().now().to_msg()
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)

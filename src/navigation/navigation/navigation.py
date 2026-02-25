@@ -31,7 +31,7 @@ class Navigation(Node):
             if marker.ns == "O":
                 goal = PoseStamped()
                 goal.header = marker.header
-                goal.pose.position.x = marker.pose.position.x - 0.2
+                goal.pose.position.x = marker.pose.position.x - 0.5
                 goal.pose.position.y = marker.pose.position.y
                 goal.pose.position.z = 0.0
                 goal.pose.orientation.x = 0.0
