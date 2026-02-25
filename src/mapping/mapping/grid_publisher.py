@@ -66,7 +66,7 @@ class GridPublisher(Node):
                 is_duplicate = True
         if not is_duplicate:
             self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
-            self.object_coords.append((new_x, new_y, 0))
+            self.object_coords.append([new_x, new_y, 0])
             self.object_types.append('O')
             self.publish_objects()
                 
@@ -178,7 +178,7 @@ class GridPublisher(Node):
         
                 static_transforms.append(t)
 
-            self.tf_static_broadcaster.sendTransform(static_transforms)
+        self.tf_static_broadcaster.sendTransform(static_transforms)
 
 
     def generate_workspace(self):
