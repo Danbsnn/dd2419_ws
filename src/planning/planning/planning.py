@@ -229,21 +229,21 @@ class PathPlanner(Node):
             for dx, dy in neighbors:
                 ny = current[0] + dy
                 nx = current[1] + dx
-            # check boundaries
-            if ny < 0 or nx < 0 or ny >= self.height or nx >= self.width:
-                continue
-            # skip obstacles 
-            if self.grid[ny, nx] != 0:
-                continue
+                # check boundaries
+                if ny < 0 or nx < 0 or ny >= self.height or nx >= self.width:
+                    continue
+                # skip obstacles 
+                if self.grid[ny, nx] != 0:
+                    continue
 
-            neightbor = (ny, nx)
-            tentative_g_cost = g_cost[current] + 1
-            # better path found
-            if neightbor not in g_cost or tentative_g_cost < g_cost[neightbor]:
-                came_from[neightbor] = current
-                g_cost[neightbor] = tentative_g_cost
-                f = tentative_g_cost + heuristic(neightbor, goal)
-                heapq.heappush(open_set, (f, neightbor))
+                neightbor = (ny, nx)
+                tentative_g_cost = g_cost[current] + 1
+                # better path found
+                if neightbor not in g_cost or tentative_g_cost < g_cost[neightbor]:
+                    came_from[neightbor] = current
+                    g_cost[neightbor] = tentative_g_cost
+                    f = tentative_g_cost + heuristic(neightbor, goal)
+                    heapq.heappush(open_set, (f, neightbor))
 
         return None
     
