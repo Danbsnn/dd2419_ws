@@ -3,7 +3,6 @@
 import rclpy
 from rclpy.node import Node
 import numpy as np
-import random
 from geometry_msgs.msg import PoseStamped, Point 
 from nav_msgs.msg import OccupancyGrid, Path
 import heapq   # priority queue for A*
@@ -11,8 +10,6 @@ import math
 from tf2_ros import TransformBroadcaster
 
 """
-Exploration Path Planner
-
 - Uses OccupancyGrid from grid_publisher.py
 - Selects random free cells (value == 0)
 - Publishes goal positions in map frame
@@ -39,7 +36,7 @@ class PathPlanner(Node):
         self.current_path = [] # list of grid cells froming the path 
         self.path_idx = 0 # which waypoint we are currently following
 
-        # (output) Publisher in Rviz visualization
+        # Publisher in Rviz visualization
         self.path_pub = self.create_publisher(
             Path,
             '/planned_path',
@@ -49,7 +46,7 @@ class PathPlanner(Node):
         # publisher (motion control) next waypoint for controller
         self.point_pub = self.create_publisher(
             Point,
-            '/path',
+            '/goal',
             10
         )
 
@@ -102,7 +99,8 @@ class PathPlanner(Node):
     def pose_callback(self, msg: PoseStamped):
         # Receives robot pose from localization node
         self.robot_pose = msg.pose
-        #self.try_plan_path()
+        if self.goal is not None:
+            self.try_plan_path()
 
     # Goal pose
     def goal_callback(self, msg: Point):
@@ -110,7 +108,7 @@ class PathPlanner(Node):
         self.goal = msg
         self.try_plan_path()
 
-    # planning
+    # main planning
     def try_plan_path(self):
         """
         Main planning function:
@@ -132,6 +130,8 @@ class PathPlanner(Node):
             self.goal.x, 
             self.goal.y
         )
+        if self.grid[goal[0], goal[1]] != 0:
+            self.get_logger().warn("goal inside obstacle, can't plan")
 
         path = self.a_star(start, goal)
 
@@ -153,12 +153,7 @@ class PathPlanner(Node):
         Sends next waypoint to controller.
         Robot moves waypoint by waypoint.
         """
-        if not self.current_path:
-            return
-
-        if self.robot_pose is None:
-            return
-        if self.path_idx >= len(self.current_path):
+        if not self.current_path or self.robot_pose is None or self.path_idx >= len(self.current_path):
             return
         # get next waypoint in grid
         gy, gx = self.current_path[self.path_idx]
@@ -168,10 +163,10 @@ class PathPlanner(Node):
         # distance from robot to waypoint
         dx = x - self.robot_pose.position.x
         dy = y - self.robot_pose.position.y
-        dist = math.sqrt(dx**2 + dy**2)
+        dist = math.hypot(dx, dy)
 
         #if close enough -> go to next waypoint
-        if dist < 0.1:
+        if dist < 0.15:
             self.path_idx += 1
             return
         
@@ -192,7 +187,7 @@ class PathPlanner(Node):
         """
         gx = int((x - self.origin.position.x) / self.resolution)
         gy = int((y - self.origin.position.y) / self.resolution)
-        return (gy, gx)
+        return gy, gx
     
     def grid_to_world(self, gx, gy):
         """
@@ -212,7 +207,7 @@ class PathPlanner(Node):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
         
         # 4-connected grid neighbors (up, down, left, right)
-        neighbors = [(1,0), (-1,0), (0,1), (0,-1)]
+        neighbors = [(1,0), (-1,0), (0,1), (0,-1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
         # priority queue for open set
         open_set = []
         heapq.heappush(open_set, (0, start))
@@ -226,24 +221,18 @@ class PathPlanner(Node):
             if current == goal:
                 return self.reconstruct_path(came_from, current)
             # explore neighbors
-            for dx, dy in neighbors:
+            for dy, dx in neighbors:
                 ny = current[0] + dy
                 nx = current[1] + dx
                 # check boundaries
-                if ny < 0 or nx < 0 or ny >= self.height or nx >= self.width:
-                    continue
-                # skip obstacles 
-                if self.grid[ny, nx] != 0:
-                    continue
-
-                neightbor = (ny, nx)
-                tentative_g_cost = g_cost[current] + 1
-                # better path found
-                if neightbor not in g_cost or tentative_g_cost < g_cost[neightbor]:
-                    came_from[neightbor] = current
-                    g_cost[neightbor] = tentative_g_cost
-                    f = tentative_g_cost + heuristic(neightbor, goal)
-                    heapq.heappush(open_set, (f, neightbor))
+                if 0 <= ny < self.height and 0 <= nx < self.width and self.grid[ny, nx]== 0:
+                    neightbor = (ny, nx)
+                    tentative_g = g_cost[current] + 1
+                    if neightbor not in g_cost or tentative_g < g_cost[neightbor]:
+                        came_from[neightbor] = current
+                        g_cost[neightbor] = tentative_g
+                        f = tentative_g + heuristic(neightbor, goal)
+                        heapq.heappush(open_set, (f, neightbor))
 
         return None
     
@@ -276,7 +265,7 @@ class PathPlanner(Node):
             pose.header = path_msg.header
             pose.pose.position.x = float(x)
             pose.pose.position.y = float(y)
-            pose.pose.position.w = 1.0
+            pose.pose.orientation.w = 1.0
 
             path_msg.poses.append(pose)
 
