@@ -26,9 +26,9 @@ class MotionControl(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.pose_sub = self.create_subscription(PoseStamped, 
-                                '/localized_pose', 
-                                self.pose_callback, 
+        self.pose_sub = self.create_subscription(PoseStamped,
+                                '/localized_pose',
+                                self.pose_callback,
                                 10
                                 )
         self.goal_sub = self.create_subscription(
@@ -41,7 +41,7 @@ class MotionControl(Node):
                                                 '/goal_pose',
                                                 self.goal_pose_callback,
                                                 10)
-        
+       
 
         self.L = 0.30         # wheel separation (m)
 
@@ -59,7 +59,7 @@ class MotionControl(Node):
 
         self.x = None
         self.y = None
-        self.theta = None   
+        self.theta = None  
         self.robot_frame = None
         self.x_t = None
         self.y_t = None
@@ -85,7 +85,7 @@ class MotionControl(Node):
             pose_stamped.header.stamp = self.get_clock().now().to_msg()
             pose_stamped.pose = pose_transformed
             return pose_stamped
-            
+           
         except TransformException as ex:
             self.get_logger().error(f'Could not transform: {ex}')
             return None
@@ -138,7 +138,7 @@ class MotionControl(Node):
             self.reached_pub.publish(reached_msg)
 
             self.get_logger().info("Target Reached!")
-            
+           
             self.finished = True
             self.x_t = None
             self.y_t = None
@@ -149,7 +149,7 @@ class MotionControl(Node):
             sign_alpha = -1
         else:
             sign_alpha = 1
-        
+       
         omega = sign_alpha * min(self.k2 * abs(alpha), self.omega_max)
 
         v_r = omega * self.L / 2.0
@@ -159,7 +159,7 @@ class MotionControl(Node):
         gradual_const = math.exp(-self.k3*abs(alpha)**2)
         # self.get_logger().info(f"Transition speed constant: {gradual_const}")
         v = min(self.k1 * d, self.v_max)
-        
+       
         if d > 0.05 and v < 0.1:
             self.get_logger().info("Robot is moving too slow, so a min velocity is applied.")
             v = max(v, 0.1)
@@ -191,7 +191,7 @@ class MotionControl(Node):
         self.theta = yaw
 
     def goal_callback(self, msg):
-        self.x_t = msg.x 
+        self.x_t = msg.x
         self.y_t = msg.y
         """(_, _, yaw) = euler_from_quaternion([
                                     msg.pose.orientation.x,
@@ -232,6 +232,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

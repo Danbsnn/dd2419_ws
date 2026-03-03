@@ -41,6 +41,8 @@ cmd = "python3 src/teleop_twist_joy/teleop_twist_joy/jazzy_teleop.py"
 [tasks.detection]
 cmd = "python3 src/detection/detection/detection.py"
 
+[tasks.task_generator]
+cmd = "python3 src/task_generator/task_generator/task_generator.py"
 
 [tasks.random_goal_generator]
 cmd = "python3 src/random_goal_generator/random_goal_generator/random_goal_generator.py"

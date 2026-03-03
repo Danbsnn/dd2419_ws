@@ -64,6 +64,7 @@ class GridPublisher(Node):
             distance = math.hypot(new_x - ox, new_y - oy)
             if distance < self.duplicate_threshold:
                 is_duplicate = True
+                self.get_logger().info("Duplicate")
         if not is_duplicate:
             self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
             self.object_coords.append([new_x, new_y, 0])
