@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
-from explorer.srv import GetNextFrontier
+from robp_interfaces.srv import GetNextFrontier
 import math
 
 class Explorer(Node):

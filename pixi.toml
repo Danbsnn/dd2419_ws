@@ -45,6 +45,9 @@ cmd = "python3 src/detection/detection/detection.py"
 [tasks.random_goal_generator]
 cmd = "python3 src/random_goal_generator/random_goal_generator/random_goal_generator.py"
 
+[tasks.simple_task_planner]
+cmd = "python3 src/simple_task_planner/simple_task_planner/simple_task_planner.py"
+
 [tasks.install_udev_rules]
 cmd = '''
 echo "Copying udev rules" &&
@@ -108,6 +111,7 @@ ros-jazzy-display-markers = { path = "src/display_markers" }
 ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
 ros-jazzy-navigation = { path = "src/navigation" }
+ros-jazzy-explorer = { path = "src/explorer" }
 
 
 # Other
