@@ -1,0 +1,5 @@
+# No request
+---
+bool success    # frontier found or not
+float64 x       # x goal choosed
+float64 y       # y goal choosed
