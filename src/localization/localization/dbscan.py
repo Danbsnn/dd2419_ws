@@ -9,61 +9,81 @@ import numpy as np
 import math
 from sklearn.cluster import DBSCAN
 
+from tf2_ros import Buffer, TransformListener
+from tf2_geometry_msgs import PointStamped
+
 class LidarNode(Node):
     def __init__(self):
         super().__init__('Lidar_DBSCAN')
 
-        # Publisher for filtered points
-        self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
+        # 1. Setup TF2
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Subscriber for raw scan
+        self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
 
-        self.get_logger().info("LiDAR DBSCAN Filter Node started")
+        self.get_logger().info("LiDAR Filter with Map Transform started")
 
     def scan_callback(self, msg):
-        points = []
+        try:
+            # Look up the transform from laser to map
+            trans = self.tf_buffer.lookup_transform(
+                'map', 
+                msg.header.frame_id, 
+                msg.header.stamp,
+                rclpy.duration.Duration(seconds=0.1)
+            )
+        except Exception as e:
+            self.get_logger().warn(f"Could not transform laser to map: {e}")
+            return
+
+        tx = trans.transform.translation.x
+        ty = trans.transform.translation.y
+        
+        q = trans.transform.rotation
+        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        points_in_map = []
         angle = msg.angle_min
         
-        # 1. Convert Polar to Cartesian
         for r in msg.ranges:
-            if not (msg.range_min < r < msg.range_max): # Use the scan's own limits
-                angle += msg.angle_increment
-                continue
-
-            x = r * math.cos(angle)
-            y = r * math.sin(angle)
-            points.append([x, y])
+            if msg.range_min < r < msg.range_max:
+                # 1. Local Cartesian (relative to robot)
+                lx = r * math.cos(angle)
+                ly = r * math.sin(angle)
+                
+                # 2. Transform to Global Map (Rotation + Translation)
+                gx = lx * math.cos(yaw) - ly * math.sin(yaw) + tx
+                gy = lx * math.sin(yaw) + ly * math.cos(yaw) + ty
+                
+                points_in_map.append([gx, gy])
+            
             angle += msg.angle_increment
             
-        if len(points) < 5:
+        if len(points_in_map) < 5:
             return
         
-        points_np = np.array(points)
-        
-        # 2. DBSCAN: eps=0.1 means points within 10cm are a cluster
-        # min_samples=5 means you need 5 points to consider it a real object
+        # Clustering
+        points_np = np.array(points_in_map)
         clustering = DBSCAN(eps=0.1, min_samples=5).fit(points_np)
-        labels = clustering.labels_
         
         clustered_points = []
-        for i, label in enumerate(labels):
-            if label != -1: # Filter out noise (-1)
-                x, y = points_np[i]
-                clustered_points.append([x, y, 0.0]) # Add Z=0 for PointCloud2
+        for i, label in enumerate(clustering.labels_):
+            if label != -1:
+                clustered_points.append([points_np[i][0], points_np[i][1], 0.0])
                 
-        if not clustered_points:
-            return
-        
-        # 3. Publish as PointCloud2
         header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = msg.header.frame_id # Usually 'laser_frame'
+        header.stamp = msg.header.stamp # Keep original scan time
+        header.frame_id = 'map'         # Change frame to 'map'
         
         cloud_msg = point_cloud2.create_cloud_xyz32(header, clustered_points)
         self.pc_pub.publish(cloud_msg)
 
- def main():
+
+def main():
     rclpy.init()
     node = LidarNode()
     try:
@@ -73,6 +93,5 @@ class LidarNode(Node):
     rclpy.shutdown()
 
 
-
 if __name__ == '__main__':
-    main() 
+    main()  
