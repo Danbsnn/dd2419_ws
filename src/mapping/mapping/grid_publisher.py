@@ -29,7 +29,7 @@ class GridPublisher(Node):
                                 self.detection_callback,
                                 10
                             )
-        self.duplicate_threshold = 0.20
+        self.duplicate_threshold = 0.30
                             
         self.og_timer = self.create_timer(2.0, self.publish_map)
 

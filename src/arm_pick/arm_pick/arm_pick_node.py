@@ -15,12 +15,13 @@ class ArmPickup(Node):
 
         self.pub = self.create_publisher(ArmControl, '/arm/control', 10)
 
-        self.l1 = 9.8
-        self.l2 = 9.5
-        self.l3 = 5.1
+        self.l1 = 0.10048
+        self.l2 = 0.094714
+        # From joint of servo 3 to joint of servo 2 + from joint  servo 2 to griping point
+        self.l3 =0.05071 + 0.11260
 
         self.time_per_degree = 20
-        self.min_time = 500
+        self.min_time = 1000
 
         self.home_motors = [30, 120, 120, 120, 120, 120]
         self.current_motors = self.home_motors.copy()
@@ -34,19 +35,19 @@ class ArmPickup(Node):
         errors = []
 
         alpha_rad = math.radians(alpha_deg)
-        lower_z = -18- 12 * math.sin(alpha_rad)
+        #lower_z = -18- 12 * math.sin(alpha_rad)
 
-        if not (14 < x < 19):
-            errors.append("x must be between 14 and 19")
+        if not (0.14 <= x <= 0.33):
+            errors.append("x must be between 0.14 and 0.33m")
 
-        if not (-12 < y < 12):
-            errors.append("y must be between -12 and 12")
+        if not ((-0.15) <= y <= (0.15)):
+            errors.append("y must be between -0.15m and 0.15m")
 
-        if not (lower_z < z < 12):
-            errors.append(f"z must be between {lower_z:.2f} and 12")
+        if not ((-0.10) < z <=  (0.05)):
+            errors.append(f"z must be between -0.1m and 0.05m")
 
-        if not (-90 < alpha_deg < 90):
-            errors.append("alpha must be between -90 and 90 degrees")
+        if not (-45 <= alpha_deg <= 0):
+            errors.append("alpha must be between -45 and 0 degrees")
 
         return errors
 
@@ -87,7 +88,8 @@ class ArmPickup(Node):
         c2 = (r*r - self.l1*self.l1 - self.l2*self.l2) / (2*self.l1*self.l2)
         c2 = max(-1.0, min(1.0, c2))
 
-        theta2 = -abs(math.acos(c2))
+        s2 = -math.sqrt(1 - c2*c2)   # elbow-down
+        theta2 = math.atan2(s2, c2)
 
         phi = math.atan2(n, m)
 
@@ -174,7 +176,7 @@ def main():
         while True:
 
             user_input = input(
-                "\nEnter x y z alpha_deg (or q to quit): "
+                "\nEnter x y z alpha_deg (or q to quit) where x y z all in meters and \n alpha in degrees(angle of the end effector with respect to the horizontal): "
             )
 
             if user_input.lower() == 'q':
@@ -183,6 +185,7 @@ def main():
             try:
                 x, y, z, alpha_deg = map(float, user_input.split())
                 node.move_to_xyz(x, y, z, alpha_deg)
+
             except:
                 print("Invalid input format. Use: x y z alpha_deg")
 
