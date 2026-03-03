@@ -62,3 +62,17 @@ class LidarNode(Node):
         
         cloud_msg = point_cloud2.create_cloud_xyz32(header, clustered_points)
         self.pc_pub.publish(cloud_msg)
+
+ def main():
+    rclpy.init()
+    node = LidarNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    rclpy.shutdown()
+
+
+
+if __name__ == '__main__':
+    main() 
