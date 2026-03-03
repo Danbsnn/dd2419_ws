@@ -14,7 +14,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='snowwhite',
-    maintainer_email='daniel.purroy02@gmail.com',
+    maintainer_email='daviiid.m@hotmail.com',
     description='TODO: Package description',
     license='Apache-2.0',
     extras_require={
@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'planning = planning.planning:main',
+            
         ],
     },
 )
