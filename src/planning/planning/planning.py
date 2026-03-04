@@ -5,10 +5,16 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Point
 from nav_msgs.msg import Path
 
+from tf2_ros import TransformListener, Buffer
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
+
 class PathPlanner(Node):
 
     def __init__(self):
         super().__init__('path_planning')
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.robot_pose = None
         self.current_path = []
@@ -26,7 +32,14 @@ class PathPlanner(Node):
 
     # ---------------- ROBOT POSE ----------------
     def pose_callback(self, msg):
-        self.robot_pose = msg.pose
+        #self.robot_pose = msg.pose
+         # Convert robot pose to map frame
+        try:
+            pose_msg_map = self.tf_buffer.transform(msg, "map")
+            self.robot_pose = pose_msg_map.pose
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(f"TF transform failed: {e}")
+            return
 
     # ---------------- GOAL ----------------
     def goal_callback(self, msg):
