@@ -34,10 +34,10 @@ class GridPublisher(Node):
         self.og_timer = self.create_timer(2.0, self.publish_map)
 
         workspace_path = "/home/snowwhite/dd2419_ws/src/mapping/map/workspace_1.csv"
-        self.map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
+        map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
 
         self.workspace = np.loadtxt(workspace_path, delimiter=',', skiprows=1)*0.01
-        raw_map = np.genfromtxt(self.map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
+        raw_map = np.genfromtxt(map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
         self.object_types = [row[0] for row in raw_map]
         self.object_coords = [[row[1]*0.01, row[2]*0.01, row[3]] for row in raw_map]
 
@@ -68,17 +68,6 @@ class GridPublisher(Node):
             self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
             self.object_coords.append([new_x, new_y, 0])
             self.object_types.append('O')
-
-            try:
-                save_x = new_x * 100
-                save_y = new_y * 100
-                
-                with open(self.map_path, 'a') as f:
-                    # Format: type, x, y, angle
-                    f.write(f"\nO,{save_x:.2f},{save_y:.2f},0.0")
-            except Exception as e:
-                self.get_logger().error(f"Failed to write to CSV: {e}")
-
             self.publish_objects()
                 
 
@@ -204,6 +193,23 @@ class GridPublisher(Node):
                     grid[r, c] = 0
 
         return grid
+
+
+    def sync_full_map_to_csv(self):
+        try:
+            new_path = "/home/snowwhite/dd2419_ws/src/mapping/map/test.csv"
+            self.get_logger().info(f"Saving updated map to: {new_path}")
+    
+            with open(new_path, 'w') as f:
+                f.write("type,x,y,angle\n") # Header
+                for i in range(len(self.object_types)):
+                    ox, oy, ang = self.object_coords[i]
+                    f.write(f"{self.object_types[i]},{ox*100:.2f},{oy*100:.2f},{ang:.2f}\n")
+                    
+            self.get_logger().info("Map sync successful.")
+            
+        except Exception as e:
+            self.get_logger().error(f"Error syncing map to new file: {e}")
 
 
 
