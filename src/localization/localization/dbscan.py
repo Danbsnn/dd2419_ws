@@ -6,18 +6,15 @@ from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import numpy as np
-import math
 from sklearn.cluster import DBSCAN
 
 from tf2_ros import Buffer, TransformListener
-from tf2_geometry_msgs import PointStamped
 from tf_transformations import euler_from_quaternion
 
-class LidarNode(Node):
+class Lidar(Node):
     def __init__(self):
-        super().__init__('Lidar_DBSCAN')
+        super().__init__('dbscan')
 
-        # 1. Setup TF2
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -27,46 +24,64 @@ class LidarNode(Node):
         self.get_logger().info("lidar node running...")
 
     def scan_callback(self, msg):
+        start_time = rclpy.time.Time.from_msg(msg.header.stamp)
+        end_time = start_time + rclpy.duration.Duration(seconds=msg.scan_time)
         try:
-            # Look up the transform from laser to map
-            trans = self.tf_buffer.lookup_transform(
+            # laser_frame to map
+            tf_start = self.tf_buffer.lookup_transform(
                 'map', 
-                msg.header.frame_id,  # laser-frame
-                rclpy.time.Time(),
+                msg.header.frame_id,  # laser_frame
+                start_time,
                 rclpy.duration.Duration(seconds=0.1)
             )
         except Exception as e:
-            self.get_logger().warn(f"Could not transform laser to map: {e}")
+            self.get_logger().warn(f"Could not transform laser to map for start: {e}")
             return
-
-        tx = trans.transform.translation.x
-        ty = trans.transform.translation.y
-        
-        q = trans.transform.rotation
-        (_, _, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
-
-        points_in_map = []
-        angle = msg.angle_min
-        
-        for r in msg.ranges:
-            if msg.range_min < r < msg.range_max:
-                # laser-frame
-                lx = r * math.cos(angle)
-                ly = r * math.sin(angle)
-                
-                # map-frame
-                gx = lx * math.cos(yaw) - ly * math.sin(yaw) + tx
-                gy = lx * math.sin(yaw) + ly * math.cos(yaw) + ty
-                
-                points_in_map.append([gx, gy])
-            
-            angle += msg.angle_increment
-            
-        if len(points_in_map) < 5:
+        try:
+            # laser_frame to map
+            tf_end = self.tf_buffer.lookup_transform(
+                'map', 
+                msg.header.frame_id,  # laser_frame
+                end_time,
+                rclpy.duration.Duration(seconds=0.1)
+            )
+        except Exception as e:
+            self.get_logger().warn(f"Could not transform laser to map for end: {e}")
             return
+        
+        x1, y1 = tf_start.transform.translation.x, tf_start.transform.translation.y
+        x2, y2 = tf_end.transform.translation.x, tf_end.transform.translation.y
+        q = tf_start.transform.rotation
+        (_, _, yaw1) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        q = tf_end.transform.rotation
+        (_, _, yaw2) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        yaws = np.linspace(yaw1, np.unwrap([yaw1, yaw2])[1], len(msg.ranges))
+        pos_x = np.linspace(x1, x2, len(msg.ranges))
+        pos_y = np.linspace(y1, y2, len(msg.ranges))
+
+        ranges = np.array(msg.ranges)
+        angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
+        valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+        valid_ranges = ranges[valid_mask]
+        valid_angles = angles[valid_mask]
+        if len(valid_ranges) < 5:
+            return
+        
+        yaws = yaws[valid_mask]
+        pos_x = pos_x[valid_mask]
+        pos_y = pos_y[valid_mask]
+        
+        # laser_frame
+        lx = valid_ranges * np.cos(valid_angles)
+        ly = valid_ranges * np.sin(valid_angles)
+        # map-frame
+        gx = lx * np.cos(yaws) - ly * np.sin(yaws) + pos_x
+        gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
+
+        points_np = np.column_stack((gx, gy))
         
         # Clustering
-        points_np = np.array(points_in_map)
         clustering = DBSCAN(eps=0.1, min_samples=5).fit(points_np)
         
         clustered_points = []
@@ -87,7 +102,7 @@ class LidarNode(Node):
 
 def main():
     rclpy.init()
-    node = LidarNode()
+    node = Lidar()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
