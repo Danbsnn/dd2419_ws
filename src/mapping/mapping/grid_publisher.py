@@ -1,35 +1,45 @@
 #!/usr/bin/env python
 
 import rclpy
+import math
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
 import numpy as np
 import os
 from shapely.geometry import Point as ShapePoint, Polygon
+from tf_transformations import quaternion_from_euler
 
-from tf2_ros import TransformBroadcaster
-from geometry_msgs.msg import TransformStamped
+from tf2_ros import StaticTransformBroadcaster
+from geometry_msgs.msg import TransformStamped, PoseStamped
+
 
 class GridPublisher(Node):
     def __init__(self):
         super().__init__('grid_publisher')
 
-        self.tf_broadcaster = TransformBroadcaster(self)
+        self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/map_objects', 10)
-        
+
+        self.detection_sub = self.create_subscription(
+                                PoseStamped, 
+                                '/detected_object',
+                                self.detection_callback,
+                                10
+                            )
+        self.duplicate_threshold = 0.20
+                            
         self.og_timer = self.create_timer(2.0, self.publish_map)
 
         workspace_path = "/home/snowwhite/dd2419_ws/src/mapping/map/workspace_1.csv"
-        map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
+        self.map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
 
         self.workspace = np.loadtxt(workspace_path, delimiter=',', skiprows=1)*0.01
-        raw_map = np.genfromtxt(map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
+        raw_map = np.genfromtxt(self.map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
         self.object_types = [row[0] for row in raw_map]
-        self.object_coords = np.array([[row[1], row[2]] for row in raw_map]) * 0.01
-        self.object_angles = [row[3] for row in raw_map]
+        self.object_coords = [[row[1]*0.01, row[2]*0.01, row[3]] for row in raw_map]
 
         self.resolution = 0.05  # 5cm cells
         max_x = int(np.max(self.workspace[:, 0]))
@@ -39,6 +49,38 @@ class GridPublisher(Node):
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
         self.static_grid = self.generate_workspace()
+
+        self.publish_objects()
+
+
+    def detection_callback(self, msg: PoseStamped):
+        if msg.header.frame_id != 'map':
+            self.get_logger().warn(f"Detected object is in '{msg.header.frame_id}' frame. Please change to 'map'!")
+            return
+        new_x = msg.pose.position.x
+        new_y = msg.pose.position.y
+        is_duplicate = False
+        for i, (ox, oy, _) in enumerate(self.object_coords):
+            distance = math.hypot(new_x - ox, new_y - oy)
+            if distance < self.duplicate_threshold:
+                is_duplicate = True
+        if not is_duplicate:
+            self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
+            self.object_coords.append([new_x, new_y, 0])
+            self.object_types.append('O')
+
+            try:
+                save_x = new_x * 100
+                save_y = new_y * 100
+                
+                with open(self.map_path, 'a') as f:
+                    # Format: type, x, y, angle
+                    f.write(f"\nO,{save_x:.2f},{save_y:.2f},0.0")
+            except Exception as e:
+                self.get_logger().error(f"Failed to write to CSV: {e}")
+
+            self.publish_objects()
+                
 
     def publish_map(self):
         m = OccupancyGrid()
@@ -54,35 +96,17 @@ class GridPublisher(Node):
 
         grid = self.static_grid.copy()
         # mark objects as occupied
-        for i, (ox, oy) in enumerate(self.object_coords):
+        for i, (ox, oy, _) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
                 gx, gy = int(ox/self.resolution), int(oy/self.resolution)
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
-
-                t = TransformStamped()
-                t.header.stamp = self.get_clock().now().to_msg()
-                t.header.frame_id = 'map'
-
-                t.child_frame_id = f"{self.object_types[i]}_{i}"
-            
-                t.transform.translation.x = float(ox)
-                t.transform.translation.y = float(oy)
-                t.transform.translation.z = 0.0
-
-                q = quaternion_from_euler(0.0, 0.0, self.object_angles[i])
-                t.transform.rotation.x = q[0]
-                t.transform.rotation.y = q[1]
-                t.transform.rotation.z = q[2]
-                t.transform.rotation.w = q[3]
-        
-                self.tf_broadcaster.sendTransform(t)
 
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 
         ma = MarkerArray()
         
-        for i, (ox, oy) in enumerate(self.object_coords):
+        for i, (ox, oy, _) in enumerate(self.object_coords):
             obj_type = self.object_types[i]
             
             marker = Marker()
@@ -138,6 +162,35 @@ class GridPublisher(Node):
         
         # Publish the array
         self.marker_pub.publish(ma)
+
+    def publish_objects(self):
+        static_transforms = []
+
+        for i, (ox, oy, angle) in enumerate(self.object_coords):
+            if self.object_types[i] in ['O', 'B']:
+                t = TransformStamped()
+                t.header.stamp = self.get_clock().now().to_msg()
+                t.header.frame_id = 'map'
+
+                if self.object_types[i] == 'B':
+                    t.child_frame_id = f"Box_{i}"
+                elif self.object_types[i] == 'O':
+                    t.child_frame_id = f"Cube_{i}"
+            
+                t.transform.translation.x = float(ox)
+                t.transform.translation.y = float(oy)
+                t.transform.translation.z = 0.0
+
+                q = quaternion_from_euler(0.0, 0.0, angle)
+                t.transform.rotation.x = q[0]
+                t.transform.rotation.y = q[1]
+                t.transform.rotation.z = q[2]
+                t.transform.rotation.w = q[3]
+        
+                static_transforms.append(t)
+
+        self.tf_static_broadcaster.sendTransform(static_transforms)
+
 
     def generate_workspace(self):
         self.workspace_poly = Polygon(self.workspace)
