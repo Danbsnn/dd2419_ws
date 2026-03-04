@@ -11,6 +11,7 @@ from sklearn.cluster import DBSCAN
 
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import PointStamped
+from tf_transformations import euler_from_quaternion
 
 class LidarNode(Node):
     def __init__(self):
@@ -23,15 +24,15 @@ class LidarNode(Node):
         self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
 
-        self.get_logger().info("LiDAR Filter with Map Transform started")
+        self.get_logger().info("lidar node running...")
 
     def scan_callback(self, msg):
         try:
             # Look up the transform from laser to map
             trans = self.tf_buffer.lookup_transform(
                 'map', 
-                msg.header.frame_id, 
-                msg.header.stamp,
+                msg.header.frame_id,  # laser-frame
+                rclpy.time.Time(),
                 rclpy.duration.Duration(seconds=0.1)
             )
         except Exception as e:
@@ -42,20 +43,18 @@ class LidarNode(Node):
         ty = trans.transform.translation.y
         
         q = trans.transform.rotation
-        siny_cosp = 2 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
-        yaw = math.atan2(siny_cosp, cosy_cosp)
+        (_, _, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
         points_in_map = []
         angle = msg.angle_min
         
         for r in msg.ranges:
             if msg.range_min < r < msg.range_max:
-                # 1. Local Cartesian (relative to robot)
+                # laser-frame
                 lx = r * math.cos(angle)
                 ly = r * math.sin(angle)
                 
-                # 2. Transform to Global Map (Rotation + Translation)
+                # map-frame
                 gx = lx * math.cos(yaw) - ly * math.sin(yaw) + tx
                 gy = lx * math.sin(yaw) + ly * math.cos(yaw) + ty
                 
@@ -74,10 +73,13 @@ class LidarNode(Node):
         for i, label in enumerate(clustering.labels_):
             if label != -1:
                 clustered_points.append([points_np[i][0], points_np[i][1], 0.0])
+        
+        if not clustered_points:
+            return
                 
         header = Header()
-        header.stamp = msg.header.stamp # Keep original scan time
-        header.frame_id = 'map'         # Change frame to 'map'
+        header.stamp = msg.header.stamp 
+        header.frame_id = 'map'      
         
         cloud_msg = point_cloud2.create_cloud_xyz32(header, clustered_points)
         self.pc_pub.publish(cloud_msg)
