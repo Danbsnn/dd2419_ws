@@ -1,0 +1,10 @@
+[package]
+name = "decision_maker"
+version = "0.1.0"
+
+[package.build.dependencies]
+ros-jazzy-ros2run = ">=0.32.6,<0.33"
+ros-jazzy-ros2interface = ">=0.32.6,<0.33"
+
+[package.run-dependencies]
+ros2-distro-mutex = ">=0.13,<0.14"

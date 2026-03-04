@@ -20,19 +20,50 @@ class GridPublisher(Node):
 
         self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
-        self.map_pub = self.create_publisher(OccupancyGrid, '/map', 10)
-        self.marker_pub = self.create_publisher(MarkerArray, '/map_objects', 10)
+        # Publishers
+        self.map_pub = self.create_publisher(
+                                OccupancyGrid, 
+                                '/map', 
+                                10)
+        
+        self.marker_pub = self.create_publisher(
+                                MarkerArray, 
+                                '/map_objects', 
+                                10)
 
+        # Subscribers
         self.detection_sub = self.create_subscription(
                                 PoseStamped, 
                                 '/detected_object',
                                 self.detection_callback,
                                 10
                             )
+        
+        self.box_sub = self.create_subscription(
+                                PoseStamped,
+                                '/box_detected',
+                                self.box_callback,
+                                10
+                            )
+        
+        self.pose_sub = self.create_subscription(
+                                PoseStamped,
+                                '/localized_pose',
+                                self.pose_callback,
+                                10
+                            )
+        
+        # Initialize variables
+        self.robot_pose = None
+        self.detection_range = 0.5
         self.duplicate_threshold = 0.20
-                            
-        self.og_timer = self.create_timer(2.0, self.publish_map)
+        
+        # Timer for publishing the map
+        self.og_timer = self.create_timer(
+                                2.0,
+                                self.publish_map)
 
+        # Load workspace and map
         workspace_path = "/home/snowwhite/dd2419_ws/src/mapping/map/workspace_1.csv"
         map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
 
@@ -48,11 +79,12 @@ class GridPublisher(Node):
         self.height = int(max_y/(self.resolution))
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
+        # Generate the static grid based on the workspace once at the start
         self.static_grid = self.generate_workspace()
-
+        
         self.publish_objects()
 
-
+    # Subscribers callbacks
     def detection_callback(self, msg: PoseStamped):
         if msg.header.frame_id != 'map':
             self.get_logger().warn(f"Detected object is in '{msg.header.frame_id}' frame. Please change to 'map'!")
@@ -71,6 +103,27 @@ class GridPublisher(Node):
             self.publish_objects()
                 
 
+    def box_callback(self, msg: PoseStamped):
+        if msg.header.frame_id != 'map':
+            self.get_logger().warn(f"Detected box is in '{msg.header.frame_id}' frame. Please change to 'map'!")
+            return
+        new_x = msg.pose.position.x
+        new_y = msg.pose.position.y
+        is_duplicate = False
+        for i, (ox, oy, _) in enumerate(self.object_coords):
+            distance = math.hypot(new_x - ox, new_y - oy)
+            if distance < self.duplicate_threshold:
+                is_duplicate = True
+        if not is_duplicate:
+            self.get_logger().info(f"New box discovered at ({new_x:.2f}, {new_y:.2f})")
+            self.object_coords.append([new_x, new_y, 0])
+            self.object_types.append('B')
+            self.publish_objects()
+
+    def pose_callback(self, msg: PoseStamped):
+        self.robot_pose = msg
+
+    # Timer callback
     def publish_map(self):
         m = OccupancyGrid()
         m.header.frame_id = 'map'
@@ -84,12 +137,14 @@ class GridPublisher(Node):
         m.info.origin.position.z = 0.0
 
         grid = self.static_grid.copy()
+        
         # mark objects as occupied
         for i, (ox, oy, _) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
                 gx, gy = int(ox/self.resolution), int(oy/self.resolution)
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
+        grid = self.update_visibility(grid)
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 
@@ -147,11 +202,10 @@ class GridPublisher(Node):
 
             ma.markers.append(marker)
         
-        self.marker_pub.publish(ma)
-        
         # Publish the array
         self.marker_pub.publish(ma)
 
+    # Functions
     def publish_objects(self):
         static_transforms = []
 
@@ -190,9 +244,54 @@ class GridPublisher(Node):
                 x = c*self.resolution
                 y = r*self.resolution
                 if self.workspace_poly.contains(ShapePoint(x, y)):
-                    grid[r, c] = 0
+                    grid[r, c] = -1 # unknow cell
 
         return grid
+
+    def update_visibility(self, grid):
+        if self.robot_pose is None:
+            return grid
+
+        rx = self.robot_pose.pose.position.x
+        ry = self.robot_pose.pose.position.y
+
+        orientation = self.robot_pose.pose.orientation
+        yaw = 2 * math.atan2(orientation.z, orientation.w)
+
+        range_max = 1.5 
+        fov = math.radians(60)
+
+        gx = int(rx/self.resolution)
+        gy = int(ry/self.resolution)
+
+        if 0 <= gx < self.width and 0 <= gy < self.height:
+            grid[gy, gx] = 0
+
+        min_x = int(max(0, (rx-range_max)/self.resolution))
+        max_x = int(min(self.width, (rx+range_max)/self.resolution))
+        min_y = int(max(0, (ry-range_max)/self.resolution))
+        max_y = int(min(self.height, (ry+range_max)/self.resolution))
+
+        for r in range(min_y, max_y):
+            for c in range(min_x, max_x):
+                if grid[r,c] != -1:
+                    continue
+                x = c*self.resolution
+                y = r*self.resolution
+                
+                dx = x - rx
+                dy = y - ry
+
+                distance = math.hypot(dx, dy)
+                angle = math.atan2(dy, dx)
+                angle_diff = math.atan2(
+                    math.sin(angle - yaw), 
+                    math.cos(angle - yaw))
+                
+                if abs(angle_diff) <= fov/2:
+                    grid[r, c] = 0
+
+        
 
 
 

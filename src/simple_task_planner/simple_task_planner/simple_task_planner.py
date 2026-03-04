@@ -3,8 +3,9 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-from std_srvs.srv import Trigger  # Service type for pick/drop
+from robp_interfaces.srv import ArmControl  # Service type for pick/drop
 from visualization_msgs.msg import MarkerArray
+from tf2_ros import Buffer, TransformListener
 
 class SimpleTaskPlanner(Node):
     def __init__(self):
@@ -16,6 +17,12 @@ class SimpleTaskPlanner(Node):
         self.object_position = None
         self.box_position = None
         self.current_object = None
+        self.pick_position = None
+        self.drop_position = None
+        
+        # TF buffer and listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # Publisher for goal
         self.goal_pub = self.create_publisher(
@@ -53,8 +60,7 @@ class SimpleTaskPlanner(Node):
         )
 
         # Clients for pick/drop
-        self.pick_client = self.create_client(Trigger, 'arm_pick')
-        self.drop_client = self.create_client(Trigger, 'arm_drop')
+        self.pick_client = self.create_client(ArmControl, '/arm/execute')
 
 
     # Subscribers callbacks
@@ -64,6 +70,12 @@ class SimpleTaskPlanner(Node):
     def object_loc_callback(self, msg):
         if len(msg.markers) > 0:
             marker = msg.markers[0]
+            marker_base = self.tf_buffer.transform(marker, 'base_link')
+            x = marker_base.pose.position.x
+            y = marker_base.pose.position.y
+            z = marker_base.pose.position.z
+            self.pick_position = (x, y, z)
+
             self.object_position = PoseStamped()
             self.object_position.header = marker.header
             self.object_position.pose.position.x = marker.pose.position.x
@@ -75,6 +87,12 @@ class SimpleTaskPlanner(Node):
     def box_loc_callback(self, msg):
         if len(msg.markers) > 0:
             marker = msg.markers[0]
+            marker_base = self.tf_buffer.transform(marker, 'base_link')
+            x = marker.pose.position.x
+            y = marker.pose.position.y
+            z = marker.pose.position.z
+            self.drop_position = (x, y, z)
+
             self.box_position = PoseStamped()
             self.box_position.header = marker.header
             self.box_position.pose.position.x = marker.pose.position.x
@@ -111,11 +129,16 @@ class SimpleTaskPlanner(Node):
             goal_pose.pose.orientation.w = 1.0
             self.goal_pub.publish(goal_pose)
 
-    def call_service_pick_object(self, obj):
+    def call_service_object(self, x, y, z, mode):
         if not self.pick_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error('Pick service not available')
             return False
-        req = Trigger.Request()
+        req = ArmControl.Request()
+        req.x = x
+        req.y = y
+        req.z = z
+        req.message = mode
+
         future = self.pick_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         if future.result().success:
@@ -124,21 +147,6 @@ class SimpleTaskPlanner(Node):
         else:
             self.get_logger().error('Failed to pick object')
             return False
-        
-    def call_service_drop_object(self):
-        if not self.drop_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error('Drop service not available')
-            return False
-        req = Trigger.Request()
-        future = self.drop_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future)
-        if future.result().success:
-            self.get_logger().info('Object dropped successfully')
-            return True
-        else:
-            self.get_logger().error('Failed to drop object')
-            return False
-
 
     # Timer callback for simple task execution
     def timer_callback(self):
@@ -148,7 +156,7 @@ class SimpleTaskPlanner(Node):
                 self.status = "PICK"
 
         elif self.status == "PICK":
-            if self.call_service_pick_object():
+            if self.call_service_object(self.pick_position[0], self.pick_position[1], self.pick_position[2], "pick"):
                 self.status = "GO_TO_BOX"
 
         elif self.status == "GO_TO_BOX":
@@ -157,7 +165,7 @@ class SimpleTaskPlanner(Node):
                 self.status = "DROP"
 
         elif self.status == "DROP":
-            if self.call_service_drop_object():
+            if self.call_service_object(self.drop_position[0], self.drop_position[1], self.drop_position[2], "drop"):
                 self.status = "DONE"
 
         elif self.status == "DONE":
