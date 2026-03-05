@@ -106,13 +106,13 @@ class Odometry(Node):
 
         if self._current_imu_yaw is not None and self._prev_imu_yaw is not None:
             self.get_logger().info("Using IMU", once=True)
-            delta_theta_imu = self._current_imu_yaw - self._prev_imu_yaw
+            delta_theta_imu =  self._prev_imu_yaw - self._current_imu_yaw
             delta_theta_imu = math.atan2(math.sin(delta_theta_imu), math.cos(delta_theta_imu))
 
             self._prev_imu_yaw = self._current_imu_yaw
 
             delta_theta_enc = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
-            delta_theta = 0.9 * delta_theta_enc + 0.1 * delta_theta_imu
+            delta_theta = 0.1 * delta_theta_enc + 0.9 * delta_theta_imu
         else:
             delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
 

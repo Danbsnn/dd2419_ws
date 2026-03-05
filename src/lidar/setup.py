@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'dbscan = lidar.dbscan:main'
+            'lidar = lidar.lidar:main'
         ],
     },
 )

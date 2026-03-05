@@ -34,6 +34,6 @@ launch:
 
   - node:
       pkg: "lidar"
-      exec: "dbscan"
-      name: "dbscan"
+      exec: "lidar"
+      name: "lidar"
       output: "screen"

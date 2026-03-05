@@ -7,7 +7,6 @@ from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 from tf2_ros import Buffer, TransformListener
 from tf_transformations import euler_from_quaternion
@@ -39,10 +38,9 @@ class Lidar(Node):
         start_time = rclpy.time.Time.from_msg(scan.header.stamp)
         end_time = start_time + rclpy.duration.Duration(seconds=scan.scan_time)
         try:
-            # laser_frame to map
             tf_start = self.tf_buffer.lookup_transform(
                 'map', 
-                'lidar_link', #msg.header.frame_id,  # laser_frame
+                'lidar_link', #msg.header.frame_id, 
                 start_time,
                 rclpy.duration.Duration(seconds=0.02)
             )
@@ -53,7 +51,7 @@ class Lidar(Node):
             # laser_frame to map
             tf_end = self.tf_buffer.lookup_transform(
                 'map', 
-                'lidar_link', # msg.header.frame_id,  # laser_frame
+                'lidar_link', # msg.header.frame_id,
                 end_time,
                 rclpy.duration.Duration(seconds=0.02)
             )
@@ -68,7 +66,8 @@ class Lidar(Node):
         q = tf_end.transform.rotation
         (_, _, yaw2) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        yaws = np.linspace(yaw1, np.unwrap([yaw1, yaw2])[1], len(scan.ranges))
+        yaw_diff = np.unwrap([yaw1, yaw2])
+        yaws = np.linspace(yaw_diff[0], yaw_diff[1], len(scan.ranges))
         pos_x = np.linspace(x1, x2, len(scan.ranges))
         pos_y = np.linspace(y1, y2, len(scan.ranges))
 
@@ -84,7 +83,7 @@ class Lidar(Node):
         pos_x = pos_x[valid_mask]
         pos_y = pos_y[valid_mask]
         
-        # laser_frame
+        # lidar_link
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
         # map-frame
@@ -93,22 +92,15 @@ class Lidar(Node):
 
         points_np = np.column_stack((gx, gy))
         
-        # Clustering
-        clustering = DBSCAN(eps=0.2, min_samples=5).fit(points_np)
-        
-        clustered_points = []
-        for i, label in enumerate(clustering.labels_):
-            if label != -1:
-                clustered_points.append([points_np[i][0], points_np[i][1], 0.0])
-        
-        if not clustered_points:
+        points = [[x, y, 0.0] for x, y in points_np]
+        if not points:
             return
                 
         header = Header()
         header.stamp = scan.header.stamp 
         header.frame_id = 'map'      
         
-        cloud_msg = point_cloud2.create_cloud_xyz32(header, clustered_points)
+        cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(cloud_msg)
 
 
