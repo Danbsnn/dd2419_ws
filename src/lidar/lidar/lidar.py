@@ -87,8 +87,8 @@ class Lidar(Node):
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
         # map-frame
-        gx = lx * np.cos(-yaws) - ly * np.sin(-yaws) + pos_x
-        gy = lx * np.sin(-yaws) + ly * np.cos(-yaws) + pos_y
+        gx = lx * np.cos(yaws) - ly * np.sin(yaws) + pos_x
+        gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
         points_np = np.column_stack((gx, gy))
         
