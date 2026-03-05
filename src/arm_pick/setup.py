@@ -25,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'arm_pick_node = arm_pick.arm_pick_node:main',
+            'testTransform = arm_pick.testTransform:main',
+            'arm_drop_node = arm_pick.arm_drop_node:main',
         ],
     },
 )

@@ -24,6 +24,7 @@ lidar = { cmd = "ros2 launch robp_launch lidar_launch.yaml" }
 phidgets = { cmd = "ros2 launch robp_launch phidgets_launch.yaml" }
 realsense = { cmd = "ros2 launch robp_launch realsense_launch.yaml" }
 arm_pick = { cmd = "ros2 run arm_pick arm_pick_node" }
+arm_drop = { cmd = "ros2 run arm_pick arm_drop_node" }
 
 [tasks.phidgets_teleop]
 cmd = "python3 src/phidgets_teleop/phidgets_teleop/teleop.py"
@@ -117,6 +118,7 @@ argcomplete = ">=3.6.3,<4"
 pynput = ">=1.8.1,<2"
 pygame = ">=2.6.1,<3"
 shapely = ">=2.1.2,<3"
+scikit-learn = ">=1.8.0,<2"
 
 [target.linux-64.dependencies]
 # ROS

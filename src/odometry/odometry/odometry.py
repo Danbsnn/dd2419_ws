@@ -40,7 +40,7 @@ class Odometry(Node):
 
         self.create_subscription(
             Imu, 
-            '/imu/data_raw',
+            '/phidgets/imu/data_raw',
             self.imu_callback, 
             10
         )
@@ -106,7 +106,7 @@ class Odometry(Node):
 
         old_yaw = self._yaw
         if self._current_imu_yaw is not None:
-            self.get_logger().info("Using IMU")
+            self.get_logger().info("Using IMU", once=True)
             self._yaw = self._current_imu_yaw - self._initial_imu_yaw
             self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw)) # normalization
             avg_yaw = (old_yaw + self._yaw) / 2.0
