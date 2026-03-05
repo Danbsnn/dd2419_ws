@@ -52,7 +52,7 @@ class Odometry(Node):
 
         # IMU variables
         self._current_imu_yaw = None
-        self._initial_imu_yaw = None
+        self._prev_imu_yaw = None
 
         self.left_encoder = None
         self.right_encoder = None
@@ -68,8 +68,8 @@ class Odometry(Node):
         (_, _, yaw) = euler_from_quaternion(q)
         self._current_imu_yaw = yaw
         
-        if self._initial_imu_yaw is None:
-            self._initial_imu_yaw = self._current_imu_yaw
+        if self._prev_imu_yaw is None:
+            self._prev_imu_yaw = yaw
         
 
     def encoder_callback(self, msg: Encoders):
@@ -104,16 +104,21 @@ class Odometry(Node):
         K = 2 * math.pi / ticks_per_rev
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
-        old_yaw = self._yaw
-        if self._current_imu_yaw is not None:
+        if self._current_imu_yaw is not None and self._prev_imu_yaw is not None:
             self.get_logger().info("Using IMU", once=True)
-            self._yaw = self._current_imu_yaw - self._initial_imu_yaw
-            self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw)) # normalization
-            avg_yaw = (old_yaw + self._yaw) / 2.0
+            delta_theta_imu = self._current_imu_yaw - self._prev_imu_yaw
+            delta_theta_imu = math.atan2(math.sin(delta_theta_imu), math.cos(delta_theta_imu))
+
+            self._prev_imu_yaw = self._current_imu_yaw
+
+            delta_theta_enc = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+            delta_theta = 0.9 * delta_theta_enc + 0.1 * delta_theta_imu
         else:
             delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
-            avg_yaw = self._yaw + delta_theta / 2.0
-            self._yaw = self._yaw + delta_theta
+
+        avg_yaw = self._yaw + delta_theta / 2.0
+        self._yaw = self._yaw + delta_theta
+        yaw_norm = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
         self._x = self._x + D * np.cos(avg_yaw)
         self._y = self._y + D * np.sin(avg_yaw) 
@@ -121,8 +126,8 @@ class Odometry(Node):
         # stamp = msg.header.stamp
         stamp = self.get_clock().now().to_msg()
 
-        self.broadcast_transform(stamp, self._x, self._y, self._yaw)
-        self.publish_path(stamp, self._x, self._y, self._yaw)
+        self.broadcast_transform(stamp, self._x, self._y, yaw_norm)
+        self.publish_path(stamp, self._x, self._y, yaw_norm)
 
     def broadcast_transform(self, stamp, x, y, yaw):
         """Takes a 2D pose and broadcasts it as a ROS transform.

@@ -25,3 +25,15 @@ launch:
           value: 10.0
         # - name: "scan_mode"
         #   value: "" # Legacy, Express, Boost, Sensitivity, Stability
+
+  - node:
+      pkg: "tf2_ros"
+      exec: "static_transform_publisher"
+      name: "lidar_stf"
+      args: "0 0 0 0 0 0 1 base_link lidar_link"
+
+  - node:
+      pkg: "lidar"
+      exec: "dbscan"
+      name: "dbscan"
+      output: "screen"

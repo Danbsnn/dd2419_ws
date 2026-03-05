@@ -42,7 +42,7 @@ class Lidar(Node):
             # laser_frame to map
             tf_start = self.tf_buffer.lookup_transform(
                 'map', 
-                'base_link', #msg.header.frame_id,  # laser_frame
+                'lidar_link', #msg.header.frame_id,  # laser_frame
                 start_time,
                 rclpy.duration.Duration(seconds=0.02)
             )
@@ -53,7 +53,7 @@ class Lidar(Node):
             # laser_frame to map
             tf_end = self.tf_buffer.lookup_transform(
                 'map', 
-                'base_link', # msg.header.frame_id,  # laser_frame
+                'lidar_link', # msg.header.frame_id,  # laser_frame
                 end_time,
                 rclpy.duration.Duration(seconds=0.02)
             )
@@ -94,7 +94,7 @@ class Lidar(Node):
         points_np = np.column_stack((gx, gy))
         
         # Clustering
-        clustering = DBSCAN(eps=0.1, min_samples=5).fit(points_np)
+        clustering = DBSCAN(eps=0.2, min_samples=5).fit(points_np)
         
         clustered_points = []
         for i, label in enumerate(clustering.labels_):
