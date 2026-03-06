@@ -2,11 +2,11 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 from tf2_ros import Buffer, TransformListener
 from tf_transformations import euler_from_quaternion
@@ -15,24 +15,37 @@ class Lidar(Node):
     def __init__(self):
         super().__init__('dbscan')
 
+        self.last_scan = None
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+        self.scan_buffer = []
+        self.max_buffer = 5
+
         self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
-        self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        self.create_subscription(LaserScan, 
+                                '/lidar/scan', 
+                                self.scan_callback, 
+                                qos_profile_sensor_data)
 
         self.get_logger().info("lidar node running...")
 
     def scan_callback(self, msg):
-        start_time = rclpy.time.Time.from_msg(msg.header.stamp)
-        end_time = start_time + rclpy.duration.Duration(seconds=msg.scan_time)
+        if self.last_scan is None:
+            self.last_scan = msg
+            return
+        scan = self.last_scan
+        self.last_scan = msg
+
+        start_time = rclpy.time.Time.from_msg(scan.header.stamp)
+        end_time = start_time + rclpy.duration.Duration(seconds=scan.scan_time)
         try:
-            # laser_frame to map
             tf_start = self.tf_buffer.lookup_transform(
                 'map', 
-                msg.header.frame_id,  # laser_frame
+                'lidar_link', #msg.header.frame_id, 
                 start_time,
-                rclpy.duration.Duration(seconds=0.1)
+                rclpy.duration.Duration(seconds=0.02)
             )
         except Exception as e:
             self.get_logger().warn(f"Could not transform laser to map for start: {e}")
@@ -41,14 +54,14 @@ class Lidar(Node):
             # laser_frame to map
             tf_end = self.tf_buffer.lookup_transform(
                 'map', 
-                msg.header.frame_id,  # laser_frame
+                'lidar_link', # msg.header.frame_id,
                 end_time,
-                rclpy.duration.Duration(seconds=0.1)
+                rclpy.duration.Duration(seconds=0.02)
             )
         except Exception as e:
             self.get_logger().warn(f"Could not transform laser to map for end: {e}")
             return
-        
+
         x1, y1 = tf_start.transform.translation.x, tf_start.transform.translation.y
         x2, y2 = tf_end.transform.translation.x, tf_end.transform.translation.y
         q = tf_start.transform.rotation
@@ -56,13 +69,14 @@ class Lidar(Node):
         q = tf_end.transform.rotation
         (_, _, yaw2) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-        yaws = np.linspace(yaw1, np.unwrap([yaw1, yaw2])[1], len(msg.ranges))
-        pos_x = np.linspace(x1, x2, len(msg.ranges))
-        pos_y = np.linspace(y1, y2, len(msg.ranges))
+        yaw_diff = np.unwrap([yaw1, yaw2])
+        yaws = np.linspace(yaw_diff[0], yaw_diff[1], len(scan.ranges))
+        pos_x = np.linspace(x1, x2, len(scan.ranges))
+        pos_y = np.linspace(y1, y2, len(scan.ranges))
 
-        ranges = np.array(msg.ranges)
-        angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
-        valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+        ranges = np.array(scan.ranges)
+        angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+        valid_mask = (ranges > scan.range_min) & (ranges < scan.range_max)
         valid_ranges = ranges[valid_mask]
         valid_angles = angles[valid_mask]
         if len(valid_ranges) < 5:
@@ -72,7 +86,7 @@ class Lidar(Node):
         pos_x = pos_x[valid_mask]
         pos_y = pos_y[valid_mask]
         
-        # laser_frame
+        # lidar_link
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
         # map-frame
@@ -80,25 +94,35 @@ class Lidar(Node):
         gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
         points_np = np.column_stack((gx, gy))
+
+        self.scan_buffer.append(points_np)
+        if len(self.scan_buffer) > self.max_buffer:
+            self.scan_buffer.pop(0)
+
+        filtered = self.filter_scans()
         
-        # Clustering
-        clustering = DBSCAN(eps=0.1, min_samples=5).fit(points_np)
-        
-        clustered_points = []
-        for i, label in enumerate(clustering.labels_):
-            if label != -1:
-                clustered_points.append([points_np[i][0], points_np[i][1], 0.0])
-        
-        if not clustered_points:
+        points = [[x, y, 0.0] for x, y in filtered]
+        if not points:
             return
                 
         header = Header()
-        header.stamp = msg.header.stamp 
+        header.stamp = scan.header.stamp 
         header.frame_id = 'map'      
         
-        cloud_msg = point_cloud2.create_cloud_xyz32(header, clustered_points)
+        cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(cloud_msg)
 
+    def filter_scans(self):
+        if len(self.scan_buffer) < 2:
+            return self.scan_buffer[-1]
+        
+        combined = np.vstack(self.scan_buffer)
+        keep = []
+        for p in combined:
+            d = np.linalg.norm(combined - p, axis=1)
+            if np.sum(d < 0.15) > 3:
+                keep.append(p)
+        return np.array(keep)
 
 def main():
     rclpy.init()
