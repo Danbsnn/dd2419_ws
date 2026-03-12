@@ -113,10 +113,11 @@ class Odometry(Node):
         yaw_pred = self._yaw + delta_theta
 
         alpha = 0.90
+        prev_yaw = self._yaw
         self._yaw = alpha * yaw_pred + (1 - alpha) * self._current_imu_yaw
         self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
-        avg_yaw = self._yaw + delta_theta / 2.0
+        avg_yaw = (self._yaw + prev_yaw) / 2.0
         self._x = self._x + D * np.cos(avg_yaw)
         self._y = self._y + D * np.sin(avg_yaw) 
         
