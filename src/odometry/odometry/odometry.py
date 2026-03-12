@@ -11,7 +11,6 @@ from tf_transformations import quaternion_from_euler, euler_from_quaternion
 
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
 from sensor_msgs.msg import Imu
 
 
@@ -52,7 +51,7 @@ class Odometry(Node):
 
         # IMU variables
         self._current_imu_yaw = None
-        self._prev_imu_yaw = None
+        self._imu_yaw_offset = None
 
         self.left_encoder = None
         self.right_encoder = None
@@ -66,11 +65,14 @@ class Odometry(Node):
             msg.orientation.w
         ]
         (_, _, yaw) = euler_from_quaternion(q)
+        yaw = -yaw
+
+        if self._imu_yaw_offset is None:
+            self._imu_yaw_offset = yaw
+
+        yaw = yaw - self._imu_yaw_offset
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))
         self._current_imu_yaw = yaw
-        
-        if self._prev_imu_yaw is None:
-            self._prev_imu_yaw = yaw
-        
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -104,30 +106,25 @@ class Odometry(Node):
         K = 2 * math.pi / ticks_per_rev
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
-        if self._current_imu_yaw is not None and self._prev_imu_yaw is not None:
-            self.get_logger().info("Using IMU", once=True)
-            delta_theta_imu =  self._prev_imu_yaw - self._current_imu_yaw
-            delta_theta_imu = math.atan2(math.sin(delta_theta_imu), math.cos(delta_theta_imu))
+        if self._current_imu_yaw is None:
+            return
 
-            self._prev_imu_yaw = self._current_imu_yaw
+        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+        yaw_pred = self._yaw + delta_theta
 
-            delta_theta_enc = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
-            delta_theta = 0.9 * delta_theta_enc + 0.1 * delta_theta_imu
-        else:
-            delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+        alpha = 0.90
+        self._yaw = alpha * yaw_pred + (1 - alpha) * self._current_imu_yaw
+        self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
         avg_yaw = self._yaw + delta_theta / 2.0
-        self._yaw = self._yaw + delta_theta
-        yaw_norm = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
-
         self._x = self._x + D * np.cos(avg_yaw)
         self._y = self._y + D * np.sin(avg_yaw) 
         
         # stamp = msg.header.stamp
         stamp = self.get_clock().now().to_msg()
 
-        self.broadcast_transform(stamp, self._x, self._y, yaw_norm)
-        self.publish_path(stamp, self._x, self._y, yaw_norm)
+        self.broadcast_transform(stamp, self._x, self._y, self._yaw)
+        self.publish_pose(stamp, self._x, self._y, self._yaw)
 
     def broadcast_transform(self, stamp, x, y, yaw):
         """Takes a 2D pose and broadcasts it as a ROS transform.
@@ -165,7 +162,7 @@ class Odometry(Node):
         # Send the transformation
         self._tf_broadcaster.sendTransform(t)
 
-    def publish_path(self, stamp, x, y, yaw):
+    def publish_pose(self, stamp, x, y, yaw):
         """Takes a 2D pose appends it to the path and publishes the whole path.
 
         Keyword arguments:
