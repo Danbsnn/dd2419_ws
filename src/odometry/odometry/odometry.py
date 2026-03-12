@@ -112,7 +112,7 @@ class Odometry(Node):
             self._prev_imu_yaw = self._current_imu_yaw
 
             delta_theta_enc = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
-            delta_theta = 0.1 * delta_theta_enc + 0.9 * delta_theta_imu
+            delta_theta = 0.9 * delta_theta_enc + 0.1 * delta_theta_imu
         else:
             delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
 

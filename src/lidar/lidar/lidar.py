@@ -20,6 +20,9 @@ class Lidar(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+        self.scan_buffer = []
+        self.max_buffer = 2
+
         self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
         self.create_subscription(LaserScan, 
                                 '/lidar/scan', 
@@ -91,8 +94,14 @@ class Lidar(Node):
         gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
         points_np = np.column_stack((gx, gy))
+
+        self.scan_buffer.append(points_np)
+        if len(self.scan_buffer) > self.max_buffer:
+            self.scan_buffer.pop(0)
+
+        filtered = self.filter_scans()
         
-        points = [[x, y, 0.0] for x, y in points_np]
+        points = [[x, y, 0.0] for x, y in filtered]
         if not points:
             return
                 
@@ -103,6 +112,17 @@ class Lidar(Node):
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(cloud_msg)
 
+    def filter_scans(self):
+        if len(self.scan_buffer) < 2:
+            return self.scan_buffer[-1]
+        
+        combined = np.vstack(self.scan_buffer)
+        keep = []
+        for p in combined:
+            d = np.linalg.norm(combined - p, axis=1)
+            if np.sum(d < 0.15) > 1:
+                keep.append(p)
+        return np.array(keep)
 
 def main():
     rclpy.init()
