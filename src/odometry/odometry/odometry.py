@@ -107,6 +107,7 @@ class Odometry(Node):
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
         if self._current_imu_yaw is None:
+            self.get_logger().info("Why is imu not running?")
             return
 
         delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
@@ -124,8 +125,8 @@ class Odometry(Node):
         self._x = self._x + D * np.cos(avg_yaw)
         self._y = self._y + D * np.sin(avg_yaw) 
         
-        # stamp = msg.header.stamp
-        stamp = self.get_clock().now().to_msg()
+        stamp = msg.header.stamp
+        # stamp = self.get_clock().now().to_msg()
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_pose(stamp, self._x, self._y, self._yaw)
