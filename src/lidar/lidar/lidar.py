@@ -3,33 +3,36 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+
 from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
+
 import numpy as np
 
-from tf2_ros import Buffer, TransformListener
-from tf_transformations import euler_from_quaternion
+from tf2_ros import Buffer, TransformListener, TransformBroadcaster
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 class Lidar(Node):
     def __init__(self):
-        super().__init__('dbscan')
+        super().__init__('lidar')
 
         self.last_scan = None
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        # self.tf_broadcaster = TransformBroadcaster
 
-        self.scan_buffer = []
-        self.max_buffer = 2
-
-        self.pc_pub = self.create_publisher(PointCloud2, '/lidar_points', 10)
+        self.pc_pub = self.create_publisher(PointCloud2, '/lidar_map', 10)
         self.create_subscription(LaserScan, 
                                 '/lidar/scan', 
                                 self.scan_callback, 
                                 qos_profile_sensor_data)
 
-        self.get_logger().info("lidar node running...")
+        self.map_pcd = None
+        self.last_odom = None
+
+        self.get_logger().info("Lidar node running...")
 
     def scan_callback(self, msg):
         if self.last_scan is None:
@@ -94,14 +97,8 @@ class Lidar(Node):
         gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
         points_np = np.column_stack((gx, gy))
-
-        self.scan_buffer.append(points_np)
-        if len(self.scan_buffer) > self.max_buffer:
-            self.scan_buffer.pop(0)
-
-        filtered = self.filter_scans()
         
-        points = [[x, y, 0.0] for x, y in filtered]
+        points = [[x, y, 0.0] for x, y in points_np]
         if not points:
             return
                 
@@ -112,17 +109,6 @@ class Lidar(Node):
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(cloud_msg)
 
-    def filter_scans(self):
-        if len(self.scan_buffer) < 2:
-            return self.scan_buffer[-1]
-        
-        combined = np.vstack(self.scan_buffer)
-        keep = []
-        for p in combined:
-            d = np.linalg.norm(combined - p, axis=1)
-            if np.sum(d < 0.15) > 1:
-                keep.append(p)
-        return np.array(keep)
 
 def main():
     rclpy.init()
