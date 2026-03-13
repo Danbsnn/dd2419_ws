@@ -9,9 +9,10 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 
 import numpy as np
+import open3d as o3d
 
-from tf2_ros import Buffer, TransformListener, TransformBroadcaster
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from tf2_ros import Buffer, TransformListener
+from tf_transformations import euler_from_quaternion
 
 class Lidar(Node):
     def __init__(self):
@@ -21,7 +22,6 @@ class Lidar(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        # self.tf_broadcaster = TransformBroadcaster
 
         self.pc_pub = self.create_publisher(PointCloud2, '/lidar_map', 10)
         self.create_subscription(LaserScan, 
@@ -29,8 +29,9 @@ class Lidar(Node):
                                 self.scan_callback, 
                                 qos_profile_sensor_data)
 
-        self.map_pcd = None
-        self.last_odom = None
+        self.map_pcd = o3d.geometry.PointCloud()
+        self.prev_pcd = None
+        self.current_pose = np.eye(4)
 
         self.get_logger().info("Lidar node running...")
 
@@ -96,12 +97,34 @@ class Lidar(Node):
         gx = lx * np.cos(yaws) - ly * np.sin(yaws) + pos_x
         gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
-        points_np = np.column_stack((gx, gy))
+        points_np = np.column_stack((gx, gy, np.zeros(len(gx))))
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points_np)
         
-        points = [[x, y, 0.0] for x, y in points_np]
-        if not points:
-            return
-                
+        if self.prev_pcd is not None:
+            threshold = 0.5
+            reg = o3d.pipelines.registration.registration_icp(
+                pcd, 
+                self.prev_pcd,
+                threshold,
+                np.eye(4),
+                o3d.pipelines.registration.TransformationEstimationPointToPoint()
+            )
+            
+            transform = reg.transformation
+            self.current_pose = self.current_pose @ transform
+        else:
+            transform = np.eye(4)
+        pcd_global = pcd.transform(self.current_pose.copy())
+        self.map_pcd += pcd
+        self.map_pcd = self.map_pcd.voxel_down_sample(voxel_size=0.05)
+
+        self.prev_pcd = pcd
+
+        map_np = np.asarray(self.map_pcd.points)
+
+        points = map_np.tolist()
+
         header = Header()
         header.stamp = scan.header.stamp 
         header.frame_id = 'map'      
