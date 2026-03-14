@@ -249,6 +249,7 @@ class GridPublisher(Node):
         return grid
 
     def update_visibility(self, grid):
+
         if self.robot_pose is None:
             return grid
 
@@ -258,38 +259,42 @@ class GridPublisher(Node):
         orientation = self.robot_pose.pose.orientation
         yaw = 2 * math.atan2(orientation.z, orientation.w)
 
-        range_max = 1.5 
-        fov = math.radians(60)
+        near = 0.2   # petite base
+        far = 0.4    # profondeur
+        fov = math.radians(80)
 
-        gx = int(rx/self.resolution)
-        gy = int(ry/self.resolution)
-
-        if 0 <= gx < self.width and 0 <= gy < self.height:
-            grid[gy, gx] = 0
-
-        min_x = int(max(0, (rx-range_max)/self.resolution))
-        max_x = int(min(self.width, (rx+range_max)/self.resolution))
-        min_y = int(max(0, (ry-range_max)/self.resolution))
-        max_y = int(min(self.height, (ry+range_max)/self.resolution))
+        min_x = int(max(0, (rx-far)/self.resolution))
+        max_x = int(min(self.width, (rx+far)/self.resolution))
+        min_y = int(max(0, (ry-far)/self.resolution))
+        max_y = int(min(self.height, (ry+far)/self.resolution))
 
         for r in range(min_y, max_y):
             for c in range(min_x, max_x):
-                if grid[r,c] != -1:
+
+                if grid[r, c] != -1:
                     continue
+
                 x = c*self.resolution
                 y = r*self.resolution
-                
+
                 dx = x - rx
                 dy = y - ry
 
                 distance = math.hypot(dx, dy)
+
+                if distance < near or distance > far:
+                    continue
+
                 angle = math.atan2(dy, dx)
                 angle_diff = math.atan2(
-                    math.sin(angle - yaw), 
-                    math.cos(angle - yaw))
-                
+                    math.sin(angle - yaw),
+                    math.cos(angle - yaw)
+                )
+
                 if abs(angle_diff) <= fov/2:
                     grid[r, c] = 0
+
+        return grid
 
         
 

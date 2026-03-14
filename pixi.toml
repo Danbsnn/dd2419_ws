@@ -107,6 +107,7 @@ ros-jazzy-robp-launch = { path = "src/robp_launch" }
 # Boot camp
 ros-jazzy-learning-tf2-py = { path = "src/learning_tf2_py" }
 ros-jazzy-odometry = { path = "src/odometry" }
+ros-jazzy-exploration-planner = { path = "src/exploration_planner" }
 ros-jazzy-display-markers = { path = "src/display_markers" }
 ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
