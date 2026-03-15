@@ -102,21 +102,22 @@ class Lidar(Node):
         pcd.points = o3d.utility.Vector3dVector(points_np)
         
         if self.prev_pcd is not None:
-            threshold = 0.5
             reg = o3d.pipelines.registration.registration_icp(
                 pcd, 
                 self.prev_pcd,
-                threshold,
+                0.5,
                 np.eye(4),
                 o3d.pipelines.registration.TransformationEstimationPointToPoint()
             )
             
             transform = reg.transformation
-            self.current_pose = self.current_pose @ transform
+            pcd.transform(transform)
         else:
             transform = np.eye(4)
-        pcd_global = pcd.transform(self.current_pose.copy())
-        self.map_pcd += pcd
+        
+        pcd_map = pcd.clone()
+
+        self.map_pcd += pcd_map
         self.map_pcd = self.map_pcd.voxel_down_sample(voxel_size=0.05)
 
         self.prev_pcd = pcd
