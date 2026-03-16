@@ -30,8 +30,7 @@ class Lidar(Node):
                                 qos_profile_sensor_data)
 
         self.map_pcd = o3d.geometry.PointCloud()
-        self.prev_pcd = None
-        self.current_pose = np.eye(4)
+        self.last_icp_pose = None
 
         self.get_logger().info("Lidar node running...")
 
@@ -80,6 +79,7 @@ class Lidar(Node):
 
         ranges = np.array(scan.ranges)
         angles = scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+
         valid_mask = (ranges > scan.range_min) & (ranges < scan.range_max)
         valid_ranges = ranges[valid_mask]
         valid_angles = angles[valid_mask]
@@ -99,35 +99,8 @@ class Lidar(Node):
 
         points_np = np.column_stack((gx, gy, np.zeros(len(gx))))
 
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points_np)
-        pcd = pcd.voxel_down_sample(0.1)
-        pcd_local = o3d.geometry.PointCloud()
-        pcd_local.points = o3d.utility.Vector3dVector(points_np)
 
-        if self.prev_pcd is not None:
-            reg = o3d.pipelines.registration.registration_icp(
-                pcd_local, 
-                self.prev_pcd,
-                0.5,
-                np.eye(4),
-                o3d.pipelines.registration.TransformationEstimationPointToPoint()
-            )
-            
-            transform = reg.transformation
-            self.current_pose = self.current_pose @ transform
-            
-            pcd.transform(self.current_pose)
-        else:
-            transform = np.eye(4)
-        
-        pcd_new = o3d.geometry.PointCloud()
-        pcd_new.points = o3d.utility.Vector3dVector(np.asarray(pcd.points))
-
-        self.map_pcd += pcd_new
-        self.map_pcd = self.map_pcd.voxel_down_sample(voxel_size=0.05)
-
-        self.prev_pcd = pcd_local
+        self.map_pcd += pcd
 
         map_np = np.asarray(self.map_pcd.points)
 
