@@ -29,8 +29,12 @@ class Lidar(Node):
                                 self.scan_callback, 
                                 qos_profile_sensor_data)
 
-        self.map_pcd = o3d.geometry.PointCloud()
+        self.map_pcd = None
         self.last_icp_pose = None
+
+        # ICP param
+        self.icp_distance_threshold = 0.5
+        self.voxel_size = 0.05
 
         self.get_logger().info("Lidar node running...")
 
@@ -98,16 +102,51 @@ class Lidar(Node):
         gy = lx * np.sin(yaws) + ly * np.cos(yaws) + pos_y
 
         points_np = np.column_stack((gx, gy, np.zeros(len(gx))))
+        
+        current_pcd = o3d.geometry.PointCloud()
+        current_pcd.points = o3d.utility.Vector3dVector(points_np)
+        
+        if self.map_pcd is None:
+            self.get_logger().info("Initializing map with first scan...")
+            self.map_pcd = current_pcd
+            self.last_icp_pose = (x1, y1, yaw1)
+            self.publish_map()
+            return
+
+        
+        # Perform ICP usin open3d
+        icp_result = o3d.pipelines.registration.registration_icp(
+            source=current_pcd,
+            target=self.map_pcd,
+            max_correspondence_distance=self.icp_distance_threshold,
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
+        )
+        T = icp_result.transformation
+
+        if icp_result.fitness < 0.3:
+            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f}")
+            self.publish_map()
+            return
+        
+        self.get_logger().info(f"icp fitness: {icp_result.fitness:.2f}")
+
+        current_pcd.transform(T)
+
+        self.map_pcd += current_pcd
+        self.map_pcd = self.map_pcd.voxel_down_sample(voxel_size=self.voxel_size)
+        map_size = len(np.asarray(self.map_pcd.points))
+        self.get_logger().info(f"Map size after voxel filter: {map_size} points")
+
+        self.publish_map()
 
 
-        self.map_pcd += pcd
-
+    def publish_map(self):
+        if self.map_pcd is None:
+            return
         map_np = np.asarray(self.map_pcd.points)
-
         points = map_np.tolist()
-
         header = Header()
-        header.stamp = scan.header.stamp 
+        header.stamp = self.get_clock().now().to_msg()
         header.frame_id = 'map'      
         
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
