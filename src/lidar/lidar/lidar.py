@@ -31,10 +31,12 @@ class Lidar(Node):
 
         self.map_pcd = None
         self.last_icp_pose = None
+        self.last_update_pose = None
 
         # ICP param
         self.icp_distance_threshold = 0.5
         self.voxel_size = 0.05
+        self.local_map_radius = 3.0
 
         self.get_logger().info("Lidar node running...")
 
@@ -105,19 +107,33 @@ class Lidar(Node):
         
         current_pcd = o3d.geometry.PointCloud()
         current_pcd.points = o3d.utility.Vector3dVector(points_np)
-        
+        current_pcd = current_pcd.voxel_down_sample(0.1)
+
         if self.map_pcd is None:
             self.get_logger().info("Initializing map with first scan...")
             self.map_pcd = current_pcd
             self.last_icp_pose = (x1, y1, yaw1)
+            self.last_update_pose = (x1, y1, yaw1)
             self.publish_map()
             return
 
-        
-        # Perform ICP usin open3d
+        if not self.should_run_icp(x1, y1, yaw1):
+            self.publish_map()
+            return
+
+        # Create Local map for icp
+        map_pts = np.asarray(self.map_pcd.points)
+        dx = map_pts[:, 0] - x1
+        dy = map_pts[:, 1] - y1
+        mask = (dx*dx + dy*dy) < self.local_map_radius**2
+        local_map = o3d.geometry.PointCloud()
+        local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
+        local_map = local_map.voxel_down_sample(0.1)
+
+        # Perform ICP using open3d
         icp_result = o3d.pipelines.registration.registration_icp(
             source=current_pcd,
-            target=self.map_pcd,
+            target=local_map,
             max_correspondence_distance=self.icp_distance_threshold,
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
         )
@@ -137,6 +153,8 @@ class Lidar(Node):
         map_size = len(np.asarray(self.map_pcd.points))
         self.get_logger().info(f"Map size after voxel filter: {map_size} points")
 
+        self.last_update_pose = (x1, y1, yaw1)
+
         self.publish_map()
 
 
@@ -151,6 +169,20 @@ class Lidar(Node):
         
         cloud_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(cloud_msg)
+
+    
+    def should_run_icp(self, x, y, yaw):
+        if self.last_update_pose is None:
+            return True
+
+        last_x, last_y, last_yaw = self.last_update_pose
+        dist = np.sqrt((x-last_x)**2 + (y-last_y)**2)
+        angle_diff = abs(self.wrap_to_pi(yaw-last_yaw))
+
+        return dist > 0.5 or angle_diff > 0.26
+
+    def wrap_to_pi(self, angle):
+        return (angle+np.pi)%(2*np.pi)-np.pi
 
 
 def main():
