@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'navigation = navigation.navigation:main'
+            'navigation = navigation.navigation:main',
+            'explorer = navigation.explorer:main'
         ],
     },
 )
