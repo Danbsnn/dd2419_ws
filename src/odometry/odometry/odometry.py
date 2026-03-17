@@ -11,7 +11,6 @@ from tf_transformations import quaternion_from_euler, euler_from_quaternion
 
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
 from sensor_msgs.msg import Imu
 
 
@@ -30,7 +29,7 @@ class Odometry(Node):
 
         self.pose_pub = self.create_publisher(
             PoseStamped,
-            '/localized_pose',
+            '/odom_pose',
             10
         )
 
@@ -40,9 +39,9 @@ class Odometry(Node):
 
         self.create_subscription(
             Imu, 
-            'imu/data_raw',  # Topic defined in spatial.cpp
+            '/phidgets/imu/data_raw',
             self.imu_callback, 
-            qos
+            10
         )
         
         # 2D pose
@@ -52,7 +51,10 @@ class Odometry(Node):
 
         # IMU variables
         self._current_imu_yaw = None
-        self._initial_imu_yaw = None
+        self._imu_yaw_offset = None
+
+        self.left_encoder = None
+        self.right_encoder = None
 
     def imu_callback(self, msg: Imu):
         """Updates the current yaw based on IMU data."""
@@ -63,11 +65,14 @@ class Odometry(Node):
             msg.orientation.w
         ]
         (_, _, yaw) = euler_from_quaternion(q)
+        yaw = -yaw
+
+        if self._imu_yaw_offset is None:
+            self._imu_yaw_offset = yaw
+
+        yaw = yaw - self._imu_yaw_offset
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))
         self._current_imu_yaw = yaw
-        
-        if self._initial_imu_yaw is None:
-            self._initial_imu_yaw = self._current_imu_yaw
-        
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -83,31 +88,48 @@ class Odometry(Node):
 
         # The kinematic parameters for the differential configuration
         ticks_per_rev = 48 * 64
-        wheel_radius = 0.04921  # TODO: Fill in
+        wheel_radius = 0.04921
         base = 0.3  # Measured on Snowwhite
 
         # Ticks since last message
-        delta_ticks_left = msg.delta_encoder_left
-        delta_ticks_right = msg.delta_encoder_right
+        if self.left_encoder is None:
+            self.left_encoder = msg.encoder_left
+            self.right_encoder = msg.encoder_right
+            return
+        
+        delta_ticks_left = msg.encoder_left - self.left_encoder
+        delta_ticks_right = msg.encoder_right - self.right_encoder
+        self.left_encoder = msg.encoder_left
+        self.right_encoder = msg.encoder_right
+
 
         K = 2 * math.pi / ticks_per_rev
         D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
-        if self._curent_imu_yaw is not None:
-            self._yaw = self._current_imu_yaw - self._initial_imu_yaw
-            self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
-        else:
-            delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
-            self._yaw = self._yaw + delta_theta
+        if self._current_imu_yaw is None:
+            self.get_logger().info("Why is imu not running?")
+            return
 
-        self._x = self._x + D * np.cos(self._yaw)  # TODO: Fill in
-        self._y = self._y + D * np.sin(self._yaw)  # TODO: Fill in
+        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+        yaw_pred = self._yaw + delta_theta
+
+        alpha = 0.90
+        prev_yaw = self._yaw
+        yaw_error = self._current_imu_yaw - yaw_pred
+        yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
+
+        self._yaw = yaw_pred + (1 - alpha) * yaw_error
+        self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
+
+        avg_yaw = (self._yaw + prev_yaw) / 2.0
+        self._x = self._x + D * np.cos(avg_yaw)
+        self._y = self._y + D * np.sin(avg_yaw) 
         
-        # stamp = msg.header.stamp # TODO: Fill in
-        stamp = self.get_clock().now().to_msg()
+        stamp = msg.header.stamp
+        # stamp = self.get_clock().now().to_msg()
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
-        self.publish_path(stamp, self._x, self._y, self._yaw)
+        self.publish_pose(stamp, self._x, self._y, self._yaw)
 
     def broadcast_transform(self, stamp, x, y, yaw):
         """Takes a 2D pose and broadcasts it as a ROS transform.
@@ -145,7 +167,7 @@ class Odometry(Node):
         # Send the transformation
         self._tf_broadcaster.sendTransform(t)
 
-    def publish_path(self, stamp, x, y, yaw):
+    def publish_pose(self, stamp, x, y, yaw):
         """Takes a 2D pose appends it to the path and publishes the whole path.
 
         Keyword arguments:
@@ -155,11 +177,12 @@ class Odometry(Node):
         yaw -- yaw of the 2D pose (in radians)
         """
 
-        self._path.header.stamp = stamp
-        self._path.header.frame_id = 'odom'
+        # self._path.header.stamp = stamp
+        # self._path.header.frame_id = 'odom'
 
         pose = PoseStamped()
-        pose.header = self._path.header
+        pose.header.stamp = stamp
+        pose.header.frame_id = 'odom'
 
         pose.pose.position.x = x
         pose.pose.position.y = y
@@ -174,7 +197,7 @@ class Odometry(Node):
         # self._path.poses.append(pose)
 
         # self._path_pub.publish(self._path)
-        self.pose_pub.publish(localized_pose)   
+        self.pose_pub.publish(pose)   
 
 
 def main():
