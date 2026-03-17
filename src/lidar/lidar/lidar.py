@@ -34,7 +34,7 @@ class Lidar(Node):
         self.last_update_pose = None
 
         # ICP param
-        self.icp_distance_threshold = 0.5
+        self.icp_distance_threshold = 0.2
         self.voxel_size = 0.05
         self.local_map_radius = 3.0
 
@@ -78,6 +78,15 @@ class Lidar(Node):
         q = tf_end.transform.rotation
         (_, _, yaw2) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
+        if not self.should_run_icp(x1, y1, yaw1):
+            self.publish_map()
+            return
+        
+        if self.rotating_fast(yaw1, yaw2, scan.scan_time):
+            self.get_logger().warn("Rotating too fast")
+            self.publish_map()
+            return
+
         yaw_diff = np.unwrap([yaw1, yaw2])
         yaws = np.linspace(yaw_diff[0], yaw_diff[1], len(scan.ranges))
         pos_x = np.linspace(x1, x2, len(scan.ranges))
@@ -107,17 +116,13 @@ class Lidar(Node):
         
         current_pcd = o3d.geometry.PointCloud()
         current_pcd.points = o3d.utility.Vector3dVector(points_np)
-        current_pcd = current_pcd.voxel_down_sample(0.1)
+        current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
 
         if self.map_pcd is None:
             self.get_logger().info("Initializing map with first scan...")
             self.map_pcd = current_pcd
             self.last_icp_pose = (x1, y1, yaw1)
             self.last_update_pose = (x1, y1, yaw1)
-            self.publish_map()
-            return
-
-        if not self.should_run_icp(x1, y1, yaw1):
             self.publish_map()
             return
 
@@ -128,14 +133,17 @@ class Lidar(Node):
         mask = (dx*dx + dy*dy) < self.local_map_radius**2
         local_map = o3d.geometry.PointCloud()
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
-        local_map = local_map.voxel_down_sample(0.1)
+        local_map = local_map.voxel_down_sample(self.voxel_size)
+
+        current_pcd.estimate_normals()
+        local_map.estimate_normals()
 
         # Perform ICP using open3d
         icp_result = o3d.pipelines.registration.registration_icp(
             source=current_pcd,
             target=local_map,
             max_correspondence_distance=self.icp_distance_threshold,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane()
         )
         T = icp_result.transformation
 
@@ -183,6 +191,10 @@ class Lidar(Node):
 
     def wrap_to_pi(self, angle):
         return (angle+np.pi)%(2*np.pi)-np.pi
+
+    def rotating_fast(self, yaw1, yaw2, dt):
+        angular_vel = abs(self.wrap_to_pi(yaw2-yaw1)) / dt
+        return angular_vel > 0.4
 
 
 def main():

@@ -29,7 +29,7 @@ class Odometry(Node):
 
         self.pose_pub = self.create_publisher(
             PoseStamped,
-            '/localized_pose',
+            '/odom_pose',
             10
         )
 
@@ -113,7 +113,7 @@ class Odometry(Node):
         delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
         yaw_pred = self._yaw + delta_theta
 
-        alpha = 0.90
+        alpha = 0.9
         prev_yaw = self._yaw
         yaw_error = self._current_imu_yaw - yaw_pred
         yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
