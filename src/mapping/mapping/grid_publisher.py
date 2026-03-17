@@ -80,7 +80,10 @@ class GridPublisher(Node):
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
         # Generate the static grid based on the workspace once at the start
-        self.static_grid = self.generate_workspace()
+        #self.static_grid = self.generate_workspace()
+
+        self.og_grid = self.generate_workspace()  # cellules statiques
+        self.dynamic_grid = self.og_grid.copy()   # cellules mises à jour par la vision
         
         self.publish_objects()
 
@@ -136,8 +139,8 @@ class GridPublisher(Node):
         m.info.origin.position.y = 0.0
         m.info.origin.position.z = 0.0
 
-        grid = self.static_grid.copy()
-        
+        grid = self.dynamic_grid    
+
         # mark objects as occupied
         for i, (ox, oy, _) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
@@ -145,6 +148,8 @@ class GridPublisher(Node):
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
         grid = self.update_visibility(grid)
+        self.dynamic_grid = grid.copy()
+        
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 
@@ -203,7 +208,7 @@ class GridPublisher(Node):
             ma.markers.append(marker)
         
         # Publish the array
-        self.marker_pub.publish(ma)
+        self.marker_pub.publish(ma)  
 
     # Functions
     def publish_objects(self):
