@@ -60,7 +60,7 @@ class GridPublisher(Node):
         
         # Timer for publishing the map
         self.og_timer = self.create_timer(
-                                2.0,
+                                0.2,
                                 self.publish_map)
 
         # Load workspace and map
@@ -80,11 +80,8 @@ class GridPublisher(Node):
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
         # Generate the static grid based on the workspace once at the start
-        #self.static_grid = self.generate_workspace()
-
-        self.og_grid = self.generate_workspace()  # cellules statiques
-        self.dynamic_grid = self.og_grid.copy()   # cellules mises à jour par la vision
-        
+        self.og_grid = self.generate_workspace()  # static cells
+        self.dynamic_grid = self.og_grid.copy()   # updated cells
         self.publish_objects()
 
     # Subscribers callbacks
@@ -148,6 +145,19 @@ class GridPublisher(Node):
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
         grid = self.update_visibility(grid)
+
+        # robot place as free cells 20cm x 35cm
+        if self.robot_pose is not None:
+            rx = self.robot_pose.pose.position.x
+            ry = self.robot_pose.pose.position.y
+            half_w = 0.1  # 20cm /2
+            half_l = 0.175 # 35cm /2
+            min_x = int(max(0, (rx-half_w)/self.resolution))
+            max_x = int(min(self.width, (rx+half_w)/self.resolution))
+            min_y = int(max(0, (ry-half_l)/self.resolution))
+            max_y = int(min(self.height, (ry+half_l)/self.resolution))
+            grid[min_y:max_y, min_x:max_x] = 0
+
         self.dynamic_grid = grid.copy()
         
         m.data = grid.flatten().tolist()
@@ -264,13 +274,14 @@ class GridPublisher(Node):
         orientation = self.robot_pose.pose.orientation
         yaw = 2 * math.atan2(orientation.z, orientation.w)
 
-        near = 0.2   # petite base
-        far = 0.4    # profondeur
+        near = 0.2   
+        far = 0.6   
         fov = math.radians(80)
 
+        # trapeze visibility infront of robot
         min_x = int(max(0, (rx-far)/self.resolution))
         max_x = int(min(self.width, (rx+far)/self.resolution))
-        min_y = int(max(0, (ry-far)/self.resolution))
+        min_y = int(max(0, (ry-near)/self.resolution))
         max_y = int(min(self.height, (ry+far)/self.resolution))
 
         for r in range(min_y, max_y):
@@ -297,7 +308,7 @@ class GridPublisher(Node):
                 )
 
                 if abs(angle_diff) <= fov/2:
-                    grid[r, c] = 0
+                    grid[r, c] = 0 # free cell
 
         return grid
 
