@@ -43,6 +43,9 @@ cmd = "python3 src/teleop_twist_joy/teleop_twist_joy/jazzy_teleop.py"
 [tasks.detection]
 cmd = "python3 src/detection/detection/detection.py"
 
+[tasks.arm_detector]
+cmd = "python3 src/arm_detector/arm_detector/arm_detector.py"
+ 
 [tasks.task_generator]
 cmd = "python3 src/task_generator/task_generator/task_generator.py"
 
@@ -94,6 +97,7 @@ ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
 
 # Course packages'arm_pick = arm_pick.arm_pick_node:main'
 ros-jazzy-arm-pick = { path = "src/arm_pick" }
+ros-jazzy-arm-detector = { path = "src/arm_detector" }
 ros-jazzy-localization = { path = "src/localization"}
 ros-jazzy-motion-control = { path = "src/motion_control"}
 
@@ -121,6 +125,13 @@ pynput = ">=1.8.1,<2"
 pygame = ">=2.6.1,<3"
 shapely = ">=2.1.2,<3"
 open3d = ">=0.19.0,<0.20"
+ros-jazzy-camera-calibration = ">=5.0.11,<6"
+semver = ">=3.0.4,<4"
+ros-jazzy-image-proc = ">=5.0.11,<6"
+opencv = ">=4.12.0,<5"
+ros-jazzy-cv-bridge = ">=4.1.0,<5"
+ros-jazzy-std-msgs = ">=5.3.6,<6"
+numpy = ">=2.4.3,<3"
 
 [target.linux-64.dependencies]
 # ROS
@@ -144,3 +155,6 @@ platformio = ">=6.1.18,<7"
 RMW_IMPLEMENTATION = "rmw_cyclonedds_cpp"
 ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"  # LOCALHOST, SUBNET
 ROS_DOMAIN_ID = "7"                       # Change to group number
+
+[pypi-dependencies]
+hsv-calibration = ">=0.7, <0.8"

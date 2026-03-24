@@ -31,9 +31,3 @@ launch:
       exec: "static_transform_publisher"
       name: "lidar_stf"
       args: "0 0 0 0 0 0 1 base_link lidar_link"
-
-  - node:
-      pkg: "lidar"
-      exec: "lidar"
-      name: "lidar"
-      output: "screen"

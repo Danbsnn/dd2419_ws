@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <launch>
+    <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.yaml" />
 	<node name="odometry" pkg="odometry" exec="odometry" output="screen" />
-    <node name="localization" pkg="localization" exec="localization" output="screen" />
+    <node name="lidar" pkg="lidar" exec="lidar" output="screen" />
 </launch>
