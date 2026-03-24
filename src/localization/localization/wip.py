@@ -102,7 +102,7 @@ class Lidar(Node):
         # lidar_link
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
-        # odom-frame
+        # map-frame
         gx = lx * np.cos(yaw) - ly * np.sin(yaw) + x
         gy = lx * np.sin(yaw) + ly * np.cos(yaw) + y
 
@@ -125,7 +125,7 @@ class Lidar(Node):
             self.last_update_pose = (x, y, yaw)
             self.publish_map()
             return
-        
+
         # Create Local map for icp
         map_pts = np.asarray(self.map_pcd.points)
         dx = map_pts[:, 0] - x
@@ -135,32 +135,23 @@ class Lidar(Node):
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
         local_map = local_map.voxel_down_sample(self.voxel_size)
 
-        current_pcd.estimate_normals(
-    search_param=o3d.geometry.KDTreeSearchParamHybrid(
-        radius=0.5, max_nn=30
-    )
-)
-        local_map.estimate_normals(
-    search_param=o3d.geometry.KDTreeSearchParamHybrid(
-        radius=0.5, max_nn=30
-    )
-)
-        
+        # current_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
+        # local_map.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
+
         # Perform ICP using open3d
         icp_result = o3d.pipelines.registration.registration_icp(
             source=current_pcd,
             target=local_map,
             max_correspondence_distance=self.icp_distance_threshold,
-            init=np.eye(4),  # Identity since both are in map frame
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane()
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
         )
         T_icp = icp_result.transformation
-       
+
         self.T_map_to_odom = T_icp @ self.T_map_to_odom
 
         if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
-            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f}, resetting map")
-            self.map_pcd = None
+            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse f{icp_result.inlier_rmse:.2f}")
+            # self.map_pcd = None
             return
         
         self.get_logger().info(f"icp fitness: {icp_result.fitness:.2f}")
@@ -172,6 +163,9 @@ class Lidar(Node):
         map_size = len(np.asarray(self.map_pcd.points))
         self.get_logger().info(f"Map size after voxel filter: {map_size} points")
 
+        if map_size > 200:
+            self.get_logger().info("Resetting map")
+            self.map_pcd = None
         self.last_update_pose = (x, y, yaw)
 
         self.publish_map()
