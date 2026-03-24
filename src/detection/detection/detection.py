@@ -1,3 +1,4 @@
+"""
    #!/usr/bin/env python3
 
 import rclpy
@@ -247,5 +248,172 @@ def main():
 
 if __name__ == '__main__':
     main()
+"""
+     #!/usr/bin/env python3
 
-       
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from visualization_msgs.msg import Marker
+import tf2_ros
+import tf2_geometry_msgs
+import numpy as np
+import sensor_msgs_py.point_cloud2 as pc2
+from sklearn.cluster import DBSCAN
+
+
+class LidarObjectDetection(Node):
+
+    def __init__(self):
+        super().__init__('lidar_object_detection')
+        self.get_logger().info("LiDAR Object Detection Started")
+
+        # Subscriber
+        self.create_subscription(
+            PointCloud2,
+            '/lidar/points',   # CHANGE to your topic
+            self.lidar_callback,
+            10)
+
+        # Publishers
+        self.pose_pub = self.create_publisher(PoseStamped, '/detected_object', 10)
+        self.marker_pub = self.create_publisher(Marker, '/lidar_marker', 10)
+
+        # TF
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
+
+        # Parameters
+        self.max_distance = 3.0
+        self.ground_threshold = 0.05
+
+        # Clustering params
+        self.cluster_eps = 0.1     # meters
+        self.min_samples = 20
+
+        # Publish camera transform for RViz visualization
+        self.publish_camera_transform()
+
+    # --------------------------------------------------
+    def publish_camera_transform(self):
+        cam_tf = TransformStamped()
+        cam_tf.header.stamp = self.get_clock().now().to_msg()
+        cam_tf.header.frame_id = 'base_link'
+        cam_tf.child_frame_id = 'realsense_camera_color_optical_frame'
+        cam_tf.transform.translation.x = 0.0
+        cam_tf.transform.translation.y = 0.0
+        cam_tf.transform.translation.z = 0.0
+        cam_tf.transform.rotation.x = 0.0
+        cam_tf.transform.rotation.y = 0.0
+        cam_tf.transform.rotation.z = 0.0
+        cam_tf.transform.rotation.w = 1.0
+
+        self.tf_broadcaster.sendTransform([cam_tf])
+        self.get_logger().info("Static camera transform published")
+
+    # --------------------------------------------------
+    def lidar_callback(self, msg):
+        points = np.array([[p[0], p[1], p[2]] for p in pc2.read_points(msg, skip_nans=True)])
+        if len(points) == 0:
+            return
+
+        # Distance filter
+        dist = np.linalg.norm(points, axis=1)
+        points = points[dist < self.max_distance]
+
+        # Remove ground
+        points = points[np.abs(points[:, 2]) > self.ground_threshold]
+        if len(points) == 0:
+            return
+
+        # -------------------------------
+        # CLUSTERING (Object Detection)
+        # -------------------------------
+        clustering = DBSCAN(eps=self.cluster_eps, min_samples=self.min_samples).fit(points)
+        labels = clustering.labels_
+        unique_labels = set(labels)
+
+        for label in unique_labels:
+            if label == -1:
+                continue  # noise
+
+            cluster = points[labels == label]
+            min_pt = np.min(cluster, axis=0)
+            max_pt = np.max(cluster, axis=0)
+            size = max_pt - min_pt
+
+            # Cube-like filter (tune this)
+            if not (0.05 < size[0] < 0.3 and
+                    0.05 < size[1] < 0.3 and
+                    0.05 < size[2] < 0.3):
+                continue
+
+            # Centroid
+            centroid = np.mean(cluster, axis=0)
+
+            pose_lidar = PoseStamped()
+            pose_lidar.header.stamp = self.get_clock().now().to_msg()
+            pose_lidar.header.frame_id = msg.header.frame_id  # should be lidar_link
+            pose_lidar.pose.position.x = float(centroid[0])
+            pose_lidar.pose.position.y = float(centroid[1])
+            pose_lidar.pose.position.z = float(centroid[2])
+            pose_lidar.pose.orientation.w = 1.0
+
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    "base_link",
+                    pose_lidar.header.frame_id,
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=1.0)
+                )
+                pose_base = tf2_geometry_msgs.do_transform_pose(pose_lidar.pose, transform)
+                pose_msg = PoseStamped()
+                pose_msg.header.frame_id = "base_link"
+                pose_msg.header.stamp = pose_lidar.header.stamp
+                pose_msg.pose = pose_base
+
+                self.pose_pub.publish(pose_msg)
+                self.publish_marker(pose_msg)
+
+                self.get_logger().info(
+                    f"Object detected at X={pose_msg.pose.position.x:.2f}, "
+                    f"Y={pose_msg.pose.position.y:.2f}"
+                )
+
+            except Exception as e:
+                self.get_logger().warn(f"TF failed: {e}")
+
+    # --------------------------------------------------
+    def publish_marker(self, pose):
+        marker = Marker()
+        marker.header.frame_id = "base_link"
+        marker.header.stamp = self.get_clock().now().to_msg()
+
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose = pose.pose
+
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+
+        self.marker_pub.publish(marker)
+
+
+def main():
+    rclpy.init()
+    node = LidarObjectDetection()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+
