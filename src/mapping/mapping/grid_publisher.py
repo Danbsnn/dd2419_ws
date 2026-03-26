@@ -11,7 +11,7 @@ from shapely.geometry import Point as ShapePoint, Polygon
 from tf_transformations import quaternion_from_euler
 
 from tf2_ros import StaticTransformBroadcaster, Buffer, TransformListener
-from geometry_msgs.msg import TransformStamped, PoseStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped, Pose
 from tf2_geometry_msgs import do_transform_pose
 
 
@@ -30,6 +30,11 @@ class GridPublisher(Node):
         self.marker_pub = self.create_publisher(
                                 MarkerArray, 
                                 '/map_objects', 
+                                10)
+
+        self.odom_pose_pub = self.create_publisher(
+                                Pose, 
+                                '/init_pose', 
                                 10)
 
         # Subscribers
@@ -95,7 +100,19 @@ class GridPublisher(Node):
         if self.start_x is None:
             self.get_logger().error("No starting point 'S' found in map file!")
         else:
-            self.publish_map_to_odom_transform()
+            init_pose_msg = Pose()
+            init_pose_msg.position.x = float(self.start_x)
+            init_pose_msg.position.y = float(self.start_y)
+            init_pose_msg.position.z = 0.0
+
+            init_pose_msg.orientation.x = 0.0
+            init_pose_msg.orientation.y = 0.0
+            init_pose_msg.orientation.z = 0.0
+            init_pose_msg.orientation.w = 1.0
+
+            self.odom_pose_pub(init_pose_msg)
+            self.get_logger().info(f"Published map→odom at ({self.start_x:.2f}, {self.start_y:.2f})")
+            
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -105,30 +122,6 @@ class GridPublisher(Node):
         self.dynamic_grid = self.og_grid.copy()   # updated cells
         self.publish_objects()
 
-    # Starting point transform
-    def publish_map_to_odom_transform(self):
-
-        t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'map'
-        t.child_frame_id = 'odom'
-
-        t.transform.translation.x = float(self.start_x)
-        t.transform.translation.y = float(self.start_y)
-        t.transform.translation.z = 0.0
-
-        # yaw = 0
-        q = quaternion_from_euler(0.0, 0.0, 0.0)
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
-
-        self.tf_static_broadcaster.sendTransform(t)
-
-        self.get_logger().info(
-            f"Published static map→odom at ({self.start_x:.2f}, {self.start_y:.2f})"
-        )
         
     # Subscribers callbacks
     def detection_callback(self, msg: PoseStamped):
