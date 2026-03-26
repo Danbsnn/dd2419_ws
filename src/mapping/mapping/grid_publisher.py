@@ -105,6 +105,7 @@ class GridPublisher(Node):
         self.dynamic_grid = self.og_grid.copy()   # updated cells
         self.publish_objects()
 
+    # Starting point transform
     def publish_map_to_odom_transform(self):
 
         t = TransformStamped()
@@ -282,7 +283,7 @@ class GridPublisher(Node):
 
         self.tf_static_broadcaster.sendTransform(static_transforms)
 
-
+    # First generation of workspace/map
     def generate_workspace(self):
         self.workspace_poly = Polygon(self.workspace)
         grid = np.full((self.height, self.width), 100, dtype=np.int8)
@@ -290,7 +291,6 @@ class GridPublisher(Node):
         for r in range(self.height):
             for c in range(self.width):
 
-                # conversion grille → monde CORRECTE
                 x = c * self.resolution + self.origin_x
                 y = r * self.resolution + self.origin_y
 
@@ -299,6 +299,7 @@ class GridPublisher(Node):
 
         return grid
 
+    # Update on the free cells infront of the robot
     def update_visibility(self, grid):
 
         if self.robot_pose is None:
@@ -329,7 +330,7 @@ class GridPublisher(Node):
         cosy_cosp = 1 - 2 * (orientation.y**2 + orientation.z**2)
         yaw = math.atan2(siny_cosp, cosy_cosp)
 
-        # paramètres rectangle caméra
+        # rectangle of vision and camera parameters
         cam_offset = 0.1
         length = 0.8
         width = 0.5
@@ -337,7 +338,7 @@ class GridPublisher(Node):
         camx = rx + cam_offset * math.cos(yaw)
         camy = ry + cam_offset * math.sin(yaw)
 
-        # monde → grille (SANS inversion Y)
+        # conversion in grid coordinates
         grid_cx = int((camx - self.origin_x) / self.resolution)
         grid_cy = int((camy - self.origin_y) / self.resolution)
 
@@ -349,25 +350,27 @@ class GridPublisher(Node):
                 r = grid_cy + dr
                 c = grid_cx + dc
 
+                # if cell is in the rectangle
                 if r < 0 or r >= self.height or c < 0 or c >= self.width:
                     continue
 
+                # if cell is currently unknow
                 if grid[r, c] != -1:
                     continue
 
-                # grille → monde (SANS inversion Y)
+                # conversion grid -> irl
                 x = c * self.resolution + self.origin_x
                 y = r * self.resolution + self.origin_y
 
                 dx = x - camx
                 dy = y - camy
 
-                # projection dans repère robot
+                # projection in robot frame 
                 forward =  math.cos(yaw) * dx + math.sin(yaw) * dy
                 lateral = -math.sin(yaw) * dx + math.cos(yaw) * dy
 
                 if 0 < forward < length and abs(lateral) < width / 2:
-                    grid[r, c] = 0
+                    grid[r, c] = 0 # set as free 
 
         return grid
 
