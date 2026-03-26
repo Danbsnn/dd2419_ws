@@ -107,12 +107,12 @@ class Odometry(Node):
         delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
         yaw_pred = self._yaw + delta_theta
 
-        alpha = 0.90
         prev_yaw = self._yaw
         yaw_error = self._current_imu_yaw - yaw_pred
         yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
 
-        self._yaw = yaw_pred + (1 - alpha) * yaw_error
+        gain = 0.9
+        self._yaw = yaw_pred + gain * yaw_error
         self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
         avg_yaw = (self._yaw + prev_yaw) / 2.0
