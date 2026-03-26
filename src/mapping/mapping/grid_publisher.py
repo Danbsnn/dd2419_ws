@@ -10,8 +10,9 @@ import os
 from shapely.geometry import Point as ShapePoint, Polygon
 from tf_transformations import quaternion_from_euler
 
-from tf2_ros import StaticTransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped, PoseStamped
+from tf2_geometry_msgs import do_transform_pose
 
 
 class GridPublisher(Node):
@@ -80,6 +81,9 @@ class GridPublisher(Node):
         self.width = int(max_x/(self.resolution))
         self.height = int(max_y/(self.resolution))
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Generate the static grid based on the workspace once at the start
         self.og_grid = self.generate_workspace()  # static cells
@@ -258,10 +262,23 @@ class GridPublisher(Node):
         if self.robot_pose is None:
             return grid
 
-        rx = self.robot_pose.pose.position.x
-        ry = self.robot_pose.pose.position.y
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                'map',                                # target frame
+                self.robot_pose.header.frame_id,      # source frame (odom)
+                rclpy.time.Time()
+            )
 
-        orientation = self.robot_pose.pose.orientation
+            pose_in_map = do_transform_pose(self.robot_pose, transform)
+
+        except Exception as e:
+            self.get_logger().warn(f"TF transform failed: {e}")
+            return grid
+
+        rx = pose_in_map.pose.position.x
+        ry = pose_in_map.pose.position.y
+        orientation = pose_in_map.pose.orientation
+
         siny_cosp = 2 * (orientation.w * orientation.z + orientation.x * orientation.y)
         cosy_cosp = 1 - 2 * (orientation.y**2 + orientation.z**2)
         yaw = math.atan2(siny_cosp, cosy_cosp)
@@ -301,7 +318,7 @@ class GridPublisher(Node):
 
                 # Projection dans le repère du robot
                 
-                angle = math.atan2(dx,dy)
+                angle = math.atan2(dy, dx)
                 rel_angle = angle - yaw
                 rel_angle = math.atan2(math.sin(rel_angle), math.cos(rel_angle))
 
