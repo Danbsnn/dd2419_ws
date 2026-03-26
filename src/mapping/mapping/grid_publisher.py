@@ -34,7 +34,7 @@ class GridPublisher(Node):
 
         self.odom_pose_pub = self.create_publisher(
                                 Pose, 
-                                '/init_pose', 
+                                '/initial_pose', 
                                 10)
 
         # Subscribers
