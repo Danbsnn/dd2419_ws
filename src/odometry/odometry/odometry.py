@@ -13,6 +13,8 @@ from geometry_msgs.msg import TransformStamped, PoseStamped
 from robp_interfaces.msg import Encoders
 from sensor_msgs.msg import Imu
 
+from nav_msgs.msg import Odometry
+
 
 class Odometry(Node):
 
@@ -38,11 +40,22 @@ class Odometry(Node):
             self.imu_callback, 
             10
         )
+
+        self.odom_pub = self.create_publisher(
+            Odometry,
+            '/odom',
+            10
+        )
         
         # 2D pose
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
+
+        self._last_time = None
+        self._last_x = 0.0
+        self._last_y = 0.0
+        self._last_yaw = 0.0
 
         # IMU variables
         self._current_imu_yaw = None
@@ -124,6 +137,7 @@ class Odometry(Node):
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_pose(stamp, self._x, self._y, self._yaw)
+        self.publish_odometry(stamp)
 
     def broadcast_transform(self, stamp, x, y, yaw):
         """Takes a 2D pose and broadcasts it as a ROS transform.
@@ -186,6 +200,62 @@ class Odometry(Node):
         pose.pose.orientation.w = q[3]
 
         self.pose_pub.publish(pose)   
+
+    def publish_odometry(self, stamp):
+        odom = Odometry()
+    
+        # Header
+        odom.header.stamp = stamp
+        odom.header.frame_id = 'odom'
+        odom.child_frame_id = 'base_link'
+    
+        # Pose
+        odom.pose.pose.position.x = self._x
+        odom.pose.pose.position.y = self._y
+        odom.pose.pose.position.z = 0.0
+    
+        q = quaternion_from_euler(0.0, 0.0, self._yaw)
+        odom.pose.pose.orientation.x = q[0]
+        odom.pose.pose.orientation.y = q[1]
+        odom.pose.pose.orientation.z = q[2]
+        odom.pose.pose.orientation.w = q[3]
+    
+        # twist
+        current_time = rclpy.time.Time.from_msg(stamp).nanoseconds / 1e9
+    
+        if self._last_time is None:
+            self._last_time = current_time
+            self.odom_pub.publish(odom)
+            return
+    
+        dt = current_time - self._last_time
+        self._last_time = current_time
+    
+        if dt <= 0:
+            return
+    
+        # Linear velocity (in odom frame)
+        vx = (self._x - self._last_x) / dt
+        vy = (self._y - self._last_y) / dt
+    
+        # Angular velocity
+        dyaw = math.atan2(
+            math.sin(self._yaw - self._last_yaw),
+            math.cos(self._yaw - self._last_yaw)
+        )
+        wz = dyaw / dt
+    
+        # Save last state
+        self._last_x = self._x
+        self._last_y = self._y
+        self._last_yaw = self._yaw
+    
+        # Fill twist
+        odom.twist.twist.linear.x = vx
+        odom.twist.twist.linear.y = vy
+        odom.twist.twist.angular.z = wz
+    
+        self.odom_pub.publish(odom)
 
 
 def main():
