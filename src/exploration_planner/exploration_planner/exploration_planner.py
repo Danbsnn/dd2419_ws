@@ -94,6 +94,7 @@ class SimpleTaskPlanner(Node):
         # Appel non bloquant
         future = self.frontier_client.call_async(req)
         print("test")
+        print("teeest")
 
         # Ajoute un callback pour traiter la réponse
         future.add_done_callback(self.frontier_response_callback)
