@@ -26,7 +26,7 @@ class SimpleTaskPlanner(Node):
         # subscriber
         self.loc_sub = self.create_subscription(
             PoseStamped,
-            '/localized_pose',
+            '/odom_pose',
             self.loc_callback,
             10
         )
@@ -83,21 +83,26 @@ class SimpleTaskPlanner(Node):
 
     # Service call
     def request_next_frontier(self):
-
-        if not self.frontier_client.wait_for_service(timeout_sec=2.0):
+        # Vérifie que le service existe
+        if not self.frontier_client.wait_for_service(timeout_sec=5.0):
             self.get_logger().warn("Frontier service not available")
             return
 
+        # Crée la requête
         req = GetNextFrontier.Request()
 
+        # Appel non bloquant
         future = self.frontier_client.call_async(req)
 
-        rclpy.spin_until_future_complete(self, future)
+        # Ajoute un callback pour traiter la réponse
+        future.add_done_callback(self.frontier_response_callback)
 
-        result = future.result()
 
-        if result is None:
-            self.get_logger().error("Frontier service call failed")
+    def frontier_response_callback(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
             return
 
         if not result.success:
@@ -105,6 +110,7 @@ class SimpleTaskPlanner(Node):
             self.exploration_done = True
             return
 
+        # Publie le nouveau goal
         self.publish_goal(result.x, result.y)
 
     # Main loop
