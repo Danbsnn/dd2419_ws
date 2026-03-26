@@ -26,7 +26,7 @@ class Odometry(Node):
 
         self.pose_pub = self.create_publisher(
             PoseStamped,
-            '/localized_pose',
+            '/odom_pose',
             10
         )
 
