@@ -13,26 +13,22 @@ from geometry_msgs.msg import TransformStamped, PoseStamped
 from robp_interfaces.msg import Encoders
 from sensor_msgs.msg import Imu
 
-from nav_msgs.msg import Odometry
 
 class Odometry(Node):
+
     def __init__(self):
         super().__init__('odometry')
 
+        # Initialize the transform broadcaster
         self._tf_broadcaster = TransformBroadcaster(self)
 
         self.pose_pub = self.create_publisher(
             PoseStamped,
-            '/odom_pose',
+            '/localized_pose',
             10
         )
 
-        self.odom_pub = self.create_publisher(
-            Odometry,
-            '/odom',
-            10
-        )
-
+        # Subscribe to encoder topic and call callback function on each recieved message
         self.create_subscription(
             Encoders, '/phidgets/motor/encoders', self.encoder_callback, 10)
 
@@ -48,39 +44,49 @@ class Odometry(Node):
         self._y = 0.0
         self._yaw = 0.0
 
-        self._last_time = None
-        self._last_x = 0.0
-        self._last_y = 0.0
-        self._last_yaw = 0.0
+        # IMU variables
+        self._current_imu_yaw = None
+        self._imu_yaw_offset = None
 
-        # Hardware states
         self.left_encoder = None
         self.right_encoder = None
-        
-        # Gyro integration variables
-        self._last_imu_time = None
-        self._gyro_delta_yaw = 0.0  # Accumulates rotation between encoder ticks
 
     def imu_callback(self, msg: Imu):
-        """Integrates the Z-axis angular velocity to find the change in heading."""
-        curr_time = rclpy.time.Time.from_msg(msg.header.stamp).nanoseconds / 1e9
-        
-        if self._last_imu_time is None:
-            self._last_imu_time = curr_time
-            return
-            
-        dt = curr_time - self._last_imu_time
-        self._last_imu_time = curr_time
+        """Updates the current yaw based on IMU data."""
+        q = [
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
+        ]
+        (_, _, yaw) = euler_from_quaternion(q)
+        yaw = -yaw
 
-        # Accumulate the change in yaw (radians per second * seconds)
-        self._gyro_delta_yaw -= msg.angular_velocity.z * dt
+        if self._imu_yaw_offset is None:
+            self._imu_yaw_offset = yaw
+
+        yaw = yaw - self._imu_yaw_offset
+        yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+        self._current_imu_yaw = yaw
 
     def encoder_callback(self, msg: Encoders):
-        """Fuses encoder and gyro deltas to update the odometry."""
+        """Takes encoder readings and updates the odometry.
+
+        This function is called every time the encoders are updated (i.e., when a message is published on the '/motor/encoders' topic).
+
+        Your task is to update the odometry based on the encoder data in 'msg'. You are allowed to add/change things outside this function.
+
+        Keyword arguments:
+        msg -- An encoders ROS message. To see more information about it 
+        run 'ros2 interface show robp_interfaces/msg/Encoders' in a terminal.
+        """
+
+        # The kinematic parameters for the differential configuration
         ticks_per_rev = 48 * 64
         wheel_radius = 0.04921
         base = 0.3  # Measured on Snowwhite
 
+        # Ticks since last message
         if self.left_encoder is None:
             self.left_encoder = msg.encoder_left
             self.right_encoder = msg.encoder_right
@@ -91,65 +97,87 @@ class Odometry(Node):
         self.left_encoder = msg.encoder_left
         self.right_encoder = msg.encoder_right
 
+
         K = 2 * math.pi / ticks_per_rev
-        
-        D = wheel_radius/2.0 * (K*delta_ticks_right + K*delta_ticks_left)
-        delta_theta_enc = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+        D = wheel_radius/2 * (K*delta_ticks_right + K*delta_ticks_left)
 
-        # complementary filter
-        # 0.98 means we trust the gyro 98% for rotation, and encoders 2%
-        alpha = 0
-        delta_yaw_fused = alpha * self._gyro_delta_yaw + (1.0 - alpha) * delta_theta_enc
-        
-        self._gyro_delta_yaw = 0.0
+        if self._current_imu_yaw is None:
+            return
 
-        # update Yaw
+        delta_theta = wheel_radius/base * (K*delta_ticks_right - K*delta_ticks_left)
+        yaw_pred = self._yaw + delta_theta
+
+        alpha = 0.90
         prev_yaw = self._yaw
-        self._yaw += delta_yaw_fused
+        yaw_error = self._current_imu_yaw - yaw_pred
+        yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
+
+        self._yaw = yaw_pred + (1 - alpha) * yaw_error
         self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
 
-        # angle averaging 
-        avg_yaw = prev_yaw + 0.5 * math.atan2(
-            math.sin(self._yaw - prev_yaw),
-            math.cos(self._yaw - prev_yaw)
-        )
-
-        # update position
-        self._x += D * np.cos(avg_yaw)
-        self._y += D * np.sin(avg_yaw) 
+        avg_yaw = (self._yaw + prev_yaw) / 2.0
+        self._x = self._x + D * np.cos(avg_yaw)
+        self._y = self._y + D * np.sin(avg_yaw) 
         
-        stamp = msg.header.stamp
+        # stamp = msg.header.stamp
+        stamp = self.get_clock().now().to_msg()
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_pose(stamp, self._x, self._y, self._yaw)
-        self.publish_odometry(stamp)
 
     def broadcast_transform(self, stamp, x, y, yaw):
+        """Takes a 2D pose and broadcasts it as a ROS transform.
+
+        Broadcasts a 3D transform with z, roll, and pitch all zero. 
+        The transform is stamped with the current time and is between the frames 'odom' -> 'base_link'.
+
+        Keyword arguments:
+        stamp -- timestamp of the transform
+        x -- x coordinate of the 2D pose
+        y -- y coordinate of the 2D pose
+        yaw -- yaw of the 2D pose (in radians)
+        """
+
         t = TransformStamped()
         t.header.stamp = stamp
         t.header.frame_id = 'odom'
         t.child_frame_id = 'base_link'
 
+        # The robot only exists in 2D, thus we set x and y translation
+        # coordinates and set the z coordinate to 0
         t.transform.translation.x = x
         t.transform.translation.y = y
         t.transform.translation.z = 0.0
 
+        # For the same reason, the robot can only rotate around one axis
+        # and this why we set rotation in x and y to 0 and obtain
+        # rotation in z axis from the message
         q = quaternion_from_euler(0.0, 0.0, yaw)
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]
         t.transform.rotation.w = q[3]
 
+        # Send the transformation
         self._tf_broadcaster.sendTransform(t)
 
     def publish_pose(self, stamp, x, y, yaw):
+        """Takes a 2D pose appends it to the path and publishes the whole path.
+
+        Keyword arguments:
+        stamp -- timestamp of the transform
+        x -- x coordinate of the 2D pose
+        y -- y coordinate of the 2D pose
+        yaw -- yaw of the 2D pose (in radians)
+        """
+
         pose = PoseStamped()
         pose.header.stamp = stamp
         pose.header.frame_id = 'odom'
 
         pose.pose.position.x = x
         pose.pose.position.y = y
-        pose.pose.position.z = 0.01 
+        pose.pose.position.z = 0.01  # 1 cm up so it will be above ground level
 
         q = quaternion_from_euler(0.0, 0.0, yaw)
         pose.pose.orientation.x = q[0]
@@ -157,63 +185,8 @@ class Odometry(Node):
         pose.pose.orientation.z = q[2]
         pose.pose.orientation.w = q[3]
 
-        self.pose_pub.publish(pose)
+        self.pose_pub.publish(pose)   
 
-    def publish_odometry(self, stamp):
-        odom = Odometry()
-    
-        # Header
-        odom.header.stamp = stamp
-        odom.header.frame_id = 'odom'
-        odom.child_frame_id = 'base_link'
-    
-        # Pose
-        odom.pose.pose.position.x = self._x
-        odom.pose.pose.position.y = self._y
-        odom.pose.pose.position.z = 0.0
-    
-        q = quaternion_from_euler(0.0, 0.0, self._yaw)
-        odom.pose.pose.orientation.x = q[0]
-        odom.pose.pose.orientation.y = q[1]
-        odom.pose.pose.orientation.z = q[2]
-        odom.pose.pose.orientation.w = q[3]
-    
-        # twist
-        current_time = rclpy.time.Time.from_msg(stamp).nanoseconds / 1e9
-    
-        if self._last_time is None:
-            self._last_time = current_time
-            self.odom_pub.publish(odom)
-            return
-    
-        dt = current_time - self._last_time
-        self._last_time = current_time
-    
-        if dt <= 0:
-            return
-    
-        # Linear velocity (in odom frame)
-        vx = (self._x - self._last_x) / dt
-        vy = (self._y - self._last_y) / dt
-    
-        # Angular velocity
-        dyaw = math.atan2(
-            math.sin(self._yaw - self._last_yaw),
-            math.cos(self._yaw - self._last_yaw)
-        )
-        wz = dyaw / dt
-    
-        # Save last state
-        self._last_x = self._x
-        self._last_y = self._y
-        self._last_yaw = self._yaw
-    
-        # Fill twist
-        odom.twist.twist.linear.x = vx
-        odom.twist.twist.linear.y = vy
-        odom.twist.twist.angular.z = wz
-    
-        self.odom_pub.publish(odom)
 
 def main():
     rclpy.init()
@@ -222,7 +195,9 @@ def main():
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
