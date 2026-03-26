@@ -126,13 +126,13 @@ class Odometry(Node):
         yaw_error = self._current_imu_yaw - yaw_pred
         yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
 
-        if abs(D) > 0.001:
+        if abs(D) > 0.001 or abs(delta_theta) > 0.001: 
             self._yaw = yaw_pred + self.gain * yaw_error
         else:
-            self._yaw = yaw_pred  # ignore imu if robot stationary, avoiding unnecessary drift
+            # stationary → ignore IMU, trust encoders
+            self._yaw = yaw_pred
             
         self._yaw = math.atan2(math.sin(self._yaw), math.cos(self._yaw))
-
         avg_yaw = (self._yaw + prev_yaw) / 2.0
         self._x = self._x + D * np.cos(avg_yaw)
         self._y = self._y + D * np.sin(avg_yaw) 
