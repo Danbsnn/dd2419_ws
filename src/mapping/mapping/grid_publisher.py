@@ -82,6 +82,21 @@ class GridPublisher(Node):
         self.height = int(max_y/(self.resolution))
         self.get_logger().info(f"Initialized {self.width}x{self.height} cells")
 
+        # Find starting pose from map file
+        self.start_x = None
+        self.start_y = None
+
+        for i, obj_type in enumerate(self.object_types):
+            if obj_type == 'S':
+                self.start_x = self.object_coords[i][0]
+                self.start_y = self.object_coords[i][1]
+                break
+
+        if self.start_x is None:
+            self.get_logger().error("No starting point 'S' found in map file!")
+        else:
+            self.publish_map_to_odom_transform()
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -90,6 +105,30 @@ class GridPublisher(Node):
         self.dynamic_grid = self.og_grid.copy()   # updated cells
         self.publish_objects()
 
+    def publish_map_to_odom_transform(self):
+
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'map'
+        t.child_frame_id = 'odom'
+
+        t.transform.translation.x = float(self.start_x)
+        t.transform.translation.y = float(self.start_y)
+        t.transform.translation.z = 0.0
+
+        # yaw = 0
+        q = quaternion_from_euler(0.0, 0.0, 0.0)
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+
+        self.tf_static_broadcaster.sendTransform(t)
+
+        self.get_logger().info(
+            f"Published static map→odom at ({self.start_x:.2f}, {self.start_y:.2f})"
+        )
+        
     # Subscribers callbacks
     def detection_callback(self, msg: PoseStamped):
         if msg.header.frame_id != 'map':
