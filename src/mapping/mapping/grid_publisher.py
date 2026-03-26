@@ -110,7 +110,7 @@ class GridPublisher(Node):
             init_pose_msg.orientation.z = 0.0
             init_pose_msg.orientation.w = 1.0
 
-            self.odom_pose_pub(init_pose_msg)
+            self.odom_pose_pub.publishs(init_pose_msg)
             self.get_logger().info(f"Published map→odom at ({self.start_x:.2f}, {self.start_y:.2f})")
             
 
