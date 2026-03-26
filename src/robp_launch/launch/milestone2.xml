@@ -1,8 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.yaml" />
-	<node name="odometry" pkg="odometry" exec="odometry" output="screen" />
-  <node name="localization" pkg="localization" exec="localization" output="screen" />
-  <node name="motion_control" pkg="motion_control" exec="motion_control" output="screen" />
-  <node name="grid_publisher" pkg="mapping" exec="grid_publisher" output="screen" />
-</launch>

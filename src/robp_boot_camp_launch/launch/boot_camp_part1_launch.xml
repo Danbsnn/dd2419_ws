@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-	<!-- run rviz -->
-	<node pkg="rviz2" exec="rviz2" name="rviz" args="-d $(find-pkg-share robp_boot_camp_launch)/rviz/boot_camp_part1.rviz" />
+    <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.yaml" />
+	<node name="odometry" pkg="odometry" exec="odometry" output="screen" />
+    <node name="lidar" pkg="lidar" exec="lidar" output="screen" />
 </launch>

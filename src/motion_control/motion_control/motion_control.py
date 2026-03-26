@@ -27,7 +27,7 @@ class MotionControl(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.pose_sub = self.create_subscription(PoseStamped,
-                                '/localized_pose',
+                                '/odom_pose',
                                 self.pose_callback,
                                 10
                                 )

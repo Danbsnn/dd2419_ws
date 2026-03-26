@@ -48,7 +48,7 @@ class GridPublisher(Node):
         
         self.pose_sub = self.create_subscription(
                                 PoseStamped,
-                                '/localized_pose',
+                                '/odom_pose',
                                 self.pose_callback,
                                 10
                             )
@@ -68,6 +68,8 @@ class GridPublisher(Node):
         map_path = "/home/snowwhite/dd2419_ws/src/mapping/map/map_1_1.csv"
 
         self.workspace = np.loadtxt(workspace_path, delimiter=',', skiprows=1)*0.01
+        self.origin_x = np.min(self.workspace[:,0])
+        self.origin_y = np.min(self.workspace[:,1])
         raw_map = np.genfromtxt(map_path, delimiter=',', skip_header=1, dtype=None, encoding='utf-8')
         self.object_types = [row[0] for row in raw_map]
         self.object_coords = [[row[1]*0.01, row[2]*0.01, row[3]] for row in raw_map]
@@ -132,8 +134,8 @@ class GridPublisher(Node):
         m.info.resolution = self.resolution
         m.info.width = self.width
         m.info.height = self.height
-        m.info.origin.position.x = 0.0
-        m.info.origin.position.y = 0.0
+        m.info.origin.position.x = self.origin_x
+        m.info.origin.position.y = self.origin_y
         m.info.origin.position.z = 0.0
 
         grid = self.dynamic_grid    
@@ -141,22 +143,10 @@ class GridPublisher(Node):
         # mark objects as occupied
         for i, (ox, oy, _) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
-                gx, gy = int(ox/self.resolution), int(oy/self.resolution)
+                gx, gy = int((ox-self.origin_x)/self.resolution), int((oy-self.origin_y)/self.resolution)
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
 
         grid = self.update_visibility(grid)
-
-        # robot place as free cells 20cm x 35cm
-        if self.robot_pose is not None:
-            rx = self.robot_pose.pose.position.x
-            ry = self.robot_pose.pose.position.y
-            half_w = 0.1  # 20cm /2
-            half_l = 0.175 # 35cm /2
-            min_x = int(max(0, (rx-half_w)/self.resolution))
-            max_x = int(min(self.width, (rx+half_w)/self.resolution))
-            min_y = int(max(0, (ry-half_l)/self.resolution))
-            max_y = int(min(self.height, (ry+half_l)/self.resolution))
-            grid[min_y:max_y, min_x:max_x] = 0
 
         self.dynamic_grid = grid.copy()
         
@@ -272,43 +262,57 @@ class GridPublisher(Node):
         ry = self.robot_pose.pose.position.y
 
         orientation = self.robot_pose.pose.orientation
-        yaw = 2 * math.atan2(orientation.z, orientation.w)
+        siny_cosp = 2 * (orientation.w * orientation.z + orientation.x * orientation.y)
+        cosy_cosp = 1 - 2 * (orientation.y**2 + orientation.z**2)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
 
-        near = 0.2   
-        far = 0.6   
-        fov = math.radians(80)
+        # paramètres du rectangle
+        cam_offset = 0.1
+        length = 0.8   # profondeur devant le robot
+        width = 0.5    # largeur du rectangle
 
-        # trapeze visibility infront of robot
-        min_x = int(max(0, (rx-far)/self.resolution))
-        max_x = int(min(self.width, (rx+far)/self.resolution))
-        min_y = int(max(0, (ry-near)/self.resolution))
-        max_y = int(min(self.height, (ry+far)/self.resolution))
+        camx = rx + cam_offset*math.cos(yaw)
+        camy = ry + cam_offset*math.sin(yaw)
 
-        for r in range(min_y, max_y):
-            for c in range(min_x, max_x):
+        # centre robot en grille
+        grid_cx = int((camx - self.origin_x)/ self.resolution)
+        grid_cy = self.height - int((camy - self.origin_y)/ self.resolution)
+
+        radius = int(length / self.resolution) + 2
+
+        for dr in range(-radius, radius+1):
+            for dc in range(-radius, radius+1):
+
+                r = grid_cy + dr
+                c = grid_cx + dc
+
+                if r < 0 or r >= self.height or c < 0 or c >= self.width:
+                    continue
 
                 if grid[r, c] != -1:
                     continue
 
-                x = c*self.resolution
-                y = r*self.resolution
+                # position monde
+                x = c * self.resolution + self.origin_x
+                y = (self.height - r)* self.resolution + self.origin_y
 
-                dx = x - rx
-                dy = y - ry
+                dx = x - camx
+                dy = y - camy
 
-                distance = math.hypot(dx, dy)
+                # Projection dans le repère du robot
+                
+                angle = math.atan2(dx,dy)
+                rel_angle = angle - yaw
+                rel_angle = math.atan2(math.sin(rel_angle), math.cos(rel_angle))
 
-                if distance < near or distance > far:
-                    continue
+                distance = math.hypot(dx,dy)
 
-                angle = math.atan2(dy, dx)
-                angle_diff = math.atan2(
-                    math.sin(angle - yaw),
-                    math.cos(angle - yaw)
-                )
+                forward = distance*math.cos(rel_angle)
+                lateral = distance*math.sin(rel_angle) 
 
-                if abs(angle_diff) <= fov/2:
-                    grid[r, c] = 0 # free cell
+                # rectangle devant le robot
+                if 0 < forward < length and abs(lateral) < width/2:
+                    grid[r, c] = 0
 
         return grid
 
