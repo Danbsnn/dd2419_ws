@@ -289,10 +289,13 @@ class GridPublisher(Node):
 
         for r in range(self.height):
             for c in range(self.width):
-                x = c*self.resolution
-                y = r*self.resolution
+
+                # conversion grille → monde CORRECTE
+                x = c * self.resolution + self.origin_x
+                y = r * self.resolution + self.origin_y
+
                 if self.workspace_poly.contains(ShapePoint(x, y)):
-                    grid[r, c] = -1 # unknow cell
+                    grid[r, c] = -1  # unknown
 
         return grid
 
@@ -308,9 +311,8 @@ class GridPublisher(Node):
                 rclpy.time.Time()
             )
 
-            # transformer uniquement le Pose
             pose_transformed = do_transform_pose(
-                self.robot_pose.pose,   # <-- IMPORTANT
+                self.robot_pose.pose,
                 transform
             )
 
@@ -321,26 +323,28 @@ class GridPublisher(Node):
         rx = pose_transformed.position.x
         ry = pose_transformed.position.y
         orientation = pose_transformed.orientation
+
+        # quaternion → yaw
         siny_cosp = 2 * (orientation.w * orientation.z + orientation.x * orientation.y)
         cosy_cosp = 1 - 2 * (orientation.y**2 + orientation.z**2)
         yaw = math.atan2(siny_cosp, cosy_cosp)
 
-        # paramètres du rectangle
+        # paramètres rectangle caméra
         cam_offset = 0.1
-        length = 0.8   # profondeur devant le robot
-        width = 0.5    # largeur du rectangle
+        length = 0.8
+        width = 0.5
 
-        camx = rx + cam_offset*math.cos(yaw)
-        camy = ry + cam_offset*math.sin(yaw)
+        camx = rx + cam_offset * math.cos(yaw)
+        camy = ry + cam_offset * math.sin(yaw)
 
-        # centre robot en grille
-        grid_cx = int((camx - self.origin_x)/ self.resolution)
-        grid_cy = self.height - int((camy - self.origin_y)/ self.resolution)
+        # monde → grille (SANS inversion Y)
+        grid_cx = int((camx - self.origin_x) / self.resolution)
+        grid_cy = int((camy - self.origin_y) / self.resolution)
 
         radius = int(length / self.resolution) + 2
 
-        for dr in range(-radius, radius+1):
-            for dc in range(-radius, radius+1):
+        for dr in range(-radius, radius + 1):
+            for dc in range(-radius, radius + 1):
 
                 r = grid_cy + dr
                 c = grid_cx + dc
@@ -351,31 +355,23 @@ class GridPublisher(Node):
                 if grid[r, c] != -1:
                     continue
 
-                # position monde
+                # grille → monde (SANS inversion Y)
                 x = c * self.resolution + self.origin_x
-                y = (self.height - r)* self.resolution + self.origin_y
+                y = r * self.resolution + self.origin_y
 
                 dx = x - camx
                 dy = y - camy
 
-                # Projection dans le repère du robot
-                
-                angle = math.atan2(dy, dx)
-                rel_angle = angle - yaw
-                rel_angle = math.atan2(math.sin(rel_angle), math.cos(rel_angle))
+                # projection dans repère robot
+                forward =  math.cos(yaw) * dx + math.sin(yaw) * dy
+                lateral = -math.sin(yaw) * dx + math.cos(yaw) * dy
 
-                distance = math.hypot(dx,dy)
-
-                forward = distance*math.cos(rel_angle)
-                lateral = distance*math.sin(rel_angle) 
-
-                # rectangle devant le robot
-                if 0 < forward < length and abs(lateral) < width/2:
+                if 0 < forward < length and abs(lateral) < width / 2:
                     grid[r, c] = 0
 
         return grid
 
-        
+            
 
 
 
