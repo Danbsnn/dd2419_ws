@@ -14,11 +14,12 @@ import open3d as o3d
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from geometry_msgs.msg import TransformStamped, Pose
+from nav_msgs.msg import Odometry
 
 
-class Lidar(Node):
+class LidarICP(Node):
     def __init__(self):
-        super().__init__('lidar')
+        super().__init__('lidar_icp')
 
         self.last_scan = None
 
@@ -32,12 +33,18 @@ class Lidar(Node):
                                 self.scan_callback, 
                                 qos_profile_sensor_data)
         self.create_subscription(Pose, '/initial_pose', self.init_pose_callback, 10)
+        self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
 
-        self.map_pcd = None
+        self.map = []
+        self.max_scans = 10
+
         self.last_icp_pose = None
         self.last_update_pose = None
 
         self.T_map_to_odom = None
+        
+        self.odom = None
+        self.max_angular_speed = 0.3  # Faster and icp won't be performed
 
         # ICP param
         self.icp_distance_threshold = 0.2
@@ -48,6 +55,9 @@ class Lidar(Node):
 
         self.get_logger().info("Lidar node running...")
 
+    def odom_callback(self, msg):
+        self.odom = msg
+    
     def init_pose_callback(self, msg):
         x = msg.position.x
         y = msg.position.y
@@ -64,9 +74,12 @@ class Lidar(Node):
         self.get_logger().info("Initial pose set")
 
     def scan_callback(self, msg):
-        if self.T_map_to_odom is None:
+        if self.T_map_to_odom is None or self.odom is None:
             self.get_logger().info("Waiting for map odom transform...", once=True)
             return
+        
+        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed:
+            self.get_logger().info("Rotating too fast, skipping icp")
 
         start_time = rclpy.time.Time.from_msg(msg.header.stamp)
 
@@ -75,7 +88,7 @@ class Lidar(Node):
                 'map', 
                 'lidar_link', #msg.header.frame_id, 
                 start_time,
-                rclpy.duration.Duration(seconds=0.02)
+                rclpy.duration.Duration(seconds=0.1)
             )
         except Exception as e:
             self.get_logger().warn(f"Could not transform lidar to map: {e}")
@@ -99,7 +112,7 @@ class Lidar(Node):
         if len(valid_ranges) < 20:
             return
         
-        # lidar_link
+        # lidar_linkmap_pts
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
         # map-frame
@@ -118,16 +131,20 @@ class Lidar(Node):
         current_pcd.points = o3d.utility.Vector3dVector(cropped_pts)
         current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
 
-        if self.map_pcd is None:
+        if not self.map:
             self.get_logger().info("Initializing map...")
-            self.map_pcd = current_pcd
+            self.map.append(current_pcd)
             self.last_icp_pose = (x, y, yaw)
             self.last_update_pose = (x, y, yaw)
             self.publish_map()
             return
 
+        map_pc = o3d.geometry.PointCloud()
+        for pc in self.map:
+            map_pc += pc
+
         # Create Local map for icp
-        map_pts = np.asarray(self.map_pcd.points)
+        map_pts = np.asarray(map_pc.points)
         dx = map_pts[:, 0] - x
         dy = map_pts[:, 1] - y
         mask = (dx*dx + dy*dy) < self.local_map_radius**2
@@ -146,35 +163,43 @@ class Lidar(Node):
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
         )
         T_icp = icp_result.transformation
-
+        
+        if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
+            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse high: f{icp_result.inlier_rmse:.2f}")
+            return
+                
         self.T_map_to_odom = T_icp @ self.T_map_to_odom
 
-        if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
-            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse f{icp_result.inlier_rmse:.2f}")
-            # self.map_pcd = None
-            return
+        
         
         self.get_logger().info(f"icp fitness: {icp_result.fitness:.2f}")
 
         current_pcd.transform(T_icp)
 
-        self.map_pcd += current_pcd
-        self.map_pcd = self.map_pcd.voxel_down_sample(voxel_size=self.voxel_size)
-        map_size = len(np.asarray(self.map_pcd.points))
-        self.get_logger().info(f"Map size after voxel filter: {map_size} points")
+        self.map.append(current_pcd)
+        if len(self.map) > self.max_scans:
+                self.map.pop(0)
 
-        if map_size > 200:
-            self.get_logger().info("Resetting map")
-            self.map_pcd = None
+        # self.map = self.map.voxel_down_sample(voxel_size=self.voxel_size)
+        # map_size = len(np.asarray(self.map.points))
+        # self.get_logger().info(f"Scan size: {map_size} points")
+
+        # if map_size > 200:
+        #    self.get_logger().info("Resetting map")
+        #    self.map = None
         self.last_update_pose = (x, y, yaw)
 
         self.publish_map()
 
 
     def publish_map(self):
-        if self.map_pcd is None:
+        if not self.map:
             return
-        map_np = np.asarray(self.map_pcd.points)
+        map_pc = o3d.geometry.PointCloud()
+        for pc in self.map:
+            map_pc += pc
+
+        map_np = np.asarray(map_pc.points)
         points = map_np.tolist()
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
