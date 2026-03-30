@@ -29,7 +29,6 @@ class OdometryEKF(Node):
         yaw_imu : absolute yaw [rad] in the odom frame after startup offset removal
 
     Notes:
-    - This is intentionally a small, robust EKF that fits your current node structure.
     - It uses encoders for motion prediction and IMU yaw as the correction step.
     - Covariances are exposed in the published nav_msgs/Odometry message so downstream
       packages (mapping, localization, navigation) can reason about uncertainty.
