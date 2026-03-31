@@ -14,11 +14,12 @@ import open3d as o3d
 from tf2_ros import Buffer, TransformListener, TransformBroadcaster
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from geometry_msgs.msg import TransformStamped, Pose
+from nav_msgs.msg import Odometry
 
 
-class Lidar(Node):
+class LidarICP(Node):
     def __init__(self):
-        super().__init__('lidar')
+        super().__init__('lidar_icp')
 
         self.last_scan = None
 
@@ -32,6 +33,7 @@ class Lidar(Node):
                                 self.scan_callback, 
                                 qos_profile_sensor_data)
         self.create_subscription(Pose, '/initial_pose', self.init_pose_callback, 10)
+        self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
 
         self.map = []
         self.max_scans = 10
@@ -40,6 +42,9 @@ class Lidar(Node):
         self.last_update_pose = None
 
         self.T_map_to_odom = None
+        
+        self.odom = None
+        self.max_angular_speed = 0.3  # Faster and icp won't be performed
 
         # ICP param
         self.icp_distance_threshold = 0.2
@@ -50,6 +55,9 @@ class Lidar(Node):
 
         self.get_logger().info("Lidar node running...")
 
+    def odom_callback(self, msg):
+        self.odom = msg
+    
     def init_pose_callback(self, msg):
         x = msg.position.x
         y = msg.position.y
@@ -66,8 +74,12 @@ class Lidar(Node):
         self.get_logger().info("Initial pose set")
 
     def scan_callback(self, msg):
-        if self.T_map_to_odom is None:
+        if self.T_map_to_odom is None or self.odom is None:
             self.get_logger().info("Waiting for map odom transform...", once=True)
+            return
+        
+        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed:
+            self.get_logger().info("Rotating too fast, skipping icp")
             return
 
         start_time = rclpy.time.Time.from_msg(msg.header.stamp)
@@ -152,13 +164,14 @@ class Lidar(Node):
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
         )
         T_icp = icp_result.transformation
-
+        
+        if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
+            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse high: f{icp_result.inlier_rmse:.2f}")
+            return
+                
         self.T_map_to_odom = T_icp @ self.T_map_to_odom
 
-        if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
-            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse f{icp_result.inlier_rmse:.2f}")
-            # self.map = None
-            return
+        
         
         self.get_logger().info(f"icp fitness: {icp_result.fitness:.2f}")
 
@@ -205,7 +218,7 @@ class Lidar(Node):
         dist = np.sqrt((x-last_x)**2 + (y-last_y)**2)
         angle_diff = abs(self.wrap_to_pi(yaw-last_yaw))
 
-        return dist > 0.1 or angle_diff > 0.05
+        return dist > 0.3 or angle_diff > 0.15
 
     def wrap_to_pi(self, angle):
         return (angle+np.pi)%(2*np.pi)-np.pi
@@ -237,7 +250,7 @@ class Lidar(Node):
 
 def main():
     rclpy.init()
-    node = Lidar()
+    node = LidarICP()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

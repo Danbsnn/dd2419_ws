@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'lidar'
+package_name = 'arm_joint_state_publisher'
 
 setup(
     name=package_name,
@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'lidar_icp = lidar.lidar_icp:main'
+             'arm_joint_state_publisher = arm_joint_state_publisher.arm_joint_state_publisher:main',
         ],
     },
 )

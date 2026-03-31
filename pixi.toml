@@ -95,9 +95,15 @@ ros-jazzy-rosidl-cli = ">=4.6.7,<5"
 # Workspace
 ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
 
+
 # Course packages'arm_pick = arm_pick.arm_pick_node:main'
+
 ros-jazzy-arm-pick = { path = "src/arm_pick" }
 ros-jazzy-arm-detector = { path = "src/arm_detector" }
+ros-jazzy-snow-description = { path = "src/snow_description" }
+ros-jazzy-arm-joint-state-publisher = { path = "src/arm_joint_state_publisher" }
+
+
 ros-jazzy-localization = { path = "src/localization"}
 ros-jazzy-motion-control = { path = "src/motion_control"}
 
@@ -133,6 +139,8 @@ ros-jazzy-cv-bridge = ">=4.1.0,<5"
 ros-jazzy-std-msgs = ">=5.3.6,<6"
 numpy = ">=2.4.3,<3"
 scikit-learn = ">=1.8.0,<2"
+ros-jazzy-robot-state-publisher = ">=3.3.3,<4"
+ros-jazzy-joint-state-publisher-gui = ">=2.4.0,<3"
 
 [target.linux-64.dependencies]
 # ROS

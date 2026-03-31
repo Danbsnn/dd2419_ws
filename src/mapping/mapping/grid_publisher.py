@@ -301,22 +301,25 @@ class GridPublisher(Node):
         try:
             transform = self.tf_buffer.lookup_transform(
                 'map',
-                self.robot_pose.header.frame_id,
+                "base_link",
                 rclpy.time.Time()
             )
 
-            pose_transformed = do_transform_pose(
-                self.robot_pose.pose,
-                transform
-            )
+            # pose_transformed = do_transform_pose(
+            #     self.robot_pose.pose,
+            #     transform
+            # )
 
         except Exception as e:
             self.get_logger().warn(f"TF transform failed: {e}")
             return grid
 
-        rx = pose_transformed.position.x
-        ry = pose_transformed.position.y
-        orientation = pose_transformed.orientation
+        # rx = pose_transformed.position.x
+        # ry = pose_transformed.position.y
+        # orientation = pose_transformed.orientation
+        rx = transform.transform.translation.x
+        ry = transform.transform.translation.y
+        orientation = transform.transform.rotation
 
         # quaternion → yaw
         siny_cosp = 2 * (orientation.w * orientation.z + orientation.x * orientation.y)

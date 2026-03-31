@@ -88,8 +88,8 @@ class MotorTeleop(Node):
             right -= 0.3
 
         # Clamp speeds
-        self.target_left = max(min(left, 1.0), -1.0)
-        self.target_right = max(min(right, 1.0), -1.0)
+        self.target_left = max(min(left, 0.7), -0.7)
+        self.target_right = max(min(right, 0.7), -0.7)
 
     # -------------------------
     # Publish motor commands (smooth ramp)
