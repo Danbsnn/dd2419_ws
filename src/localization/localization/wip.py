@@ -80,6 +80,7 @@ class LidarICP(Node):
         
         if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed:
             self.get_logger().info("Rotating too fast, skipping icp")
+            return
 
         start_time = rclpy.time.Time.from_msg(msg.header.stamp)
 
@@ -129,6 +130,7 @@ class LidarICP(Node):
 
         current_pcd = o3d.geometry.PointCloud()
         current_pcd.points = o3d.utility.Vector3dVector(cropped_pts)
+        current_pcd.remove_radius_outlier(nb_points=4, radius=0.15)
         current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
 
         if not self.map:
@@ -217,7 +219,7 @@ class LidarICP(Node):
         dist = np.sqrt((x-last_x)**2 + (y-last_y)**2)
         angle_diff = abs(self.wrap_to_pi(yaw-last_yaw))
 
-        return dist > 0.1 or angle_diff > 0.05
+        return dist > 0.3 or angle_diff > 0.15
 
     def wrap_to_pi(self, angle):
         return (angle+np.pi)%(2*np.pi)-np.pi
@@ -249,7 +251,7 @@ class LidarICP(Node):
 
 def main():
     rclpy.init()
-    node = Lidar()
+    node = LidarICP()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
