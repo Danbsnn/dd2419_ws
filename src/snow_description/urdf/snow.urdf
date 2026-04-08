@@ -10,15 +10,15 @@
   </material>
 
   <!-- ==================== MOBILE BASE ==================== -->
-  <link name="base_footprint_link"/>
+  <link name="base_link"/>
 
   <joint name="base_joint" type="fixed">
-    <parent link="base_footprint_link"/>
-    <child link="base_link"/>
+    <parent link="base_link"/>
+    <child link="mobile_base_link"/>
     <origin xyz="0 0 0.014" rpy="0 0 0"/>
   </joint>
 
-  <link name="base_link">
+  <link name="mobile_base_link">
     <visual>
       <geometry>
         <box size="0.375 0.2667 0.07"/>
@@ -29,11 +29,11 @@
   </link>
 
   <!-- ==================== WHEELS ==================== -->
-  <joint name="base_right_wheel_joint" type="continuous">
-    <parent link="base_link"/>
+  <joint name="base_right_wheel_joint" type="fixed">
+    <parent link="mobile_base_link"/>
     <child link="right_wheel_link"/>
     <origin xyz="0 -0.14985 0.035" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
+    
   </joint>
 
   <link name="right_wheel_link">
@@ -46,11 +46,11 @@
     </visual>
   </link>
 
-  <joint name="base_left_wheel_joint" type="continuous">
-    <parent link="base_link"/>
+  <joint name="base_left_wheel_joint" type="fixed">
+    <parent link="mobile_base_link"/>
     <child link="left_wheel_link"/>
     <origin xyz="0 0.14985 0.035" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
+    
   </joint>
 
   <link name="left_wheel_link">
@@ -65,7 +65,7 @@
 
   <!-- ==================== CASTER WHEELS ==================== -->
   <joint name="base_caster_left_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="caster_left_link"/>
     <origin xyz="-0.28 0.13335 -0.007" rpy="0 0 0"/>
   </joint>
@@ -81,7 +81,7 @@
   </link>
 
   <joint name="base_caster_right_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="caster_right_link"/>
     <origin xyz="-0.28 -0.13335 -0.007" rpy="0 0 0"/>
   </joint>
@@ -98,7 +98,7 @@
 
   <!-- ==================== ARM ATTACHMENT ==================== -->
   <joint name="arm_base_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="arm_base_link"/>
     <origin xyz="0 -0.05335 0.095" rpy="0 0 -1.5708"/>
   </joint>
@@ -354,7 +354,7 @@
   </link>
   <!-- ==================== arm_base_support ==================== -->
   <joint name="armbase1_support_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="armbase1_support_link"/>
     <origin xyz="-0.01 -0.11335 0.07" rpy="0 0 0"/>
   </joint>
@@ -369,7 +369,7 @@
     </visual>
   </link>
     <joint name="armbase2_support_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="armbase2_support_link"/>
     <origin xyz="-0.01 0.00665 0.07" rpy="0 0 0"/>
   </joint>
@@ -384,7 +384,7 @@
     </visual>
   </link>
   <joint name="armbase3_support_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="armbase3_support_link"/>
     <origin xyz="0.055 -0.06835 0.07" rpy="0 0 0"/>
   </joint>
@@ -399,7 +399,7 @@
     </visual>
   </link>
   <joint name="armbase4_support_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="armbase4_support_link"/>
     <origin xyz="0.055 -0.03585 0.07" rpy="0 0 0"/>
   </joint>
@@ -415,7 +415,7 @@
   </link>
   <!-- ==================== realsense_link ==================== -->
   <joint name="realsense_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="mobile_base_link"/>
     <child link="realsense_link"/>
     <origin xyz="0.082 0 0.07" rpy="0 0 0"/>
   </joint>

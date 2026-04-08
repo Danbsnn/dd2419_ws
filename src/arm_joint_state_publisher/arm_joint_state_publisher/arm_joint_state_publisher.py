@@ -47,7 +47,7 @@ class ArmJointStatePublisher(Node):
 
         # gripper: 0-160 deg, 30=closed, 115=open
         # mapped so that 0 rad = open (115 deg)
-        r_joint = math.radians(pos[0]-80)
+        r_joint = math.radians(((pos[0]/2)-84))
 
         js.position = [joint1, joint2, joint3, joint4, joint5, r_joint]
 

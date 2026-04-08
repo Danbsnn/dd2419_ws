@@ -1,0 +1,22 @@
+<launch>
+  <!-- ==================== HARDWARE LAUNCH FILES ==================== -->
+  <include file="$(find-pkg-share robp_launch)/launch/arm_launch.yaml"/>
+  <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.yaml"/>
+
+  <!-- ==================== ODOMETRY ==================== -->
+  <node pkg="odometry" exec="odometry" output="screen"/>
+
+  <!-- ==================== ROBOT STATE PUBLISHER ==================== -->
+  <let name="urdf_path" value="$(find-pkg-share snow_description)/urdf/snow.urdf"/>
+  <node pkg="robot_state_publisher" exec="robot_state_publisher">
+    <param name="robot_description" value="$(command 'cat $(var urdf_path)')"/>
+  </node>
+
+  <!-- ==================== ARM JOINT STATE PUBLISHER ==================== -->
+  <node pkg="arm_joint_state_publisher" exec="arm_joint_state_publisher" output="screen"/>
+
+  <!-- ==================== RVIZ2 ==================== -->
+  <let name="rviz_config_path" value="$(find-pkg-share snow_description)/rviz/snow_config.rviz"/>
+  <node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)"/>
+
+</launch>

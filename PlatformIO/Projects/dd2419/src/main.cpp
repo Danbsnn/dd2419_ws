@@ -157,10 +157,9 @@ void loop()
   {
     move();
   }
-  if (0b010 & a)
-  {
-    feedback();
-  }
+  
+  feedback();
+  
   if (0b100 & a)
   {
     reset();

@@ -2,17 +2,19 @@
 
 import rclpy
 import math
+import numpy as np
+
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import MarkerArray, Marker
-import numpy as np
-import os
 from shapely.geometry import Point as ShapePoint, Polygon
 from tf_transformations import quaternion_from_euler
 
 from tf2_ros import StaticTransformBroadcaster, Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped, PoseStamped, Pose
-from tf2_geometry_msgs import do_transform_pose
+
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 
 
 class GridPublisher(Node):
@@ -59,15 +61,22 @@ class GridPublisher(Node):
                                 10
                             )
         
+        self.create_subscription(PointCloud2, '/lidar_map', self.pc_callback, 10)
+        
         # Initialize variables
         self.robot_pose = None
         self.detection_range = 0.5
         self.duplicate_threshold = 0.20
+
+        self.latest_pc_msg = None
+        self.latest_obstacle_mask = None
         
         # Timer for publishing the map
         self.og_timer = self.create_timer(
                                 0.2,
                                 self.publish_map)
+        # how often it updates the obstacles in the map
+        self.pc_timer = self.create_timer(3, self.update_pointcloud_mask)
 
         # Load workspace and map
         workspace_path = "/home/snowwhite/dd2419_ws/src/mapping/map/workspace_1.csv"
@@ -124,6 +133,51 @@ class GridPublisher(Node):
 
         
     # Subscribers callbacks
+    def pc_callback(self, msg: PointCloud2):
+        self.latest_pc_msg = msg
+
+    def update_pointcloud_mask(self):
+        if self.latest_pc_msg is None:
+            return
+
+        points = point_cloud2.read_points(self.latest_pc_msg, field_names=('x', 'y'), skip_nans=True)
+
+        pts = np.array([[p[0], p[1]] for p in points], dtype=np.float32)
+        
+        if pts.size == 0:
+            self.latest_obstacle_mask = np.zeros((self.height, self.width), dtype=bool)
+            return
+        
+        valid = (
+            np.isfinite(pts[:, 0]) &
+            np.isfinite(pts[:, 1]) &
+            (pts[:, 0] >= self.origin_x) &
+            (pts[:, 0] < self.origin_x + self.width * self.resolution) &
+            (pts[:, 1] >= self.origin_y) &
+            (pts[:, 1] < self.origin_y + self.height * self.resolution)
+        )
+        pts = pts[valid]
+        
+
+        gx = ((pts[:, 0] - self.origin_x) / self.resolution).astype(np.int32)
+        gy = ((pts[:, 1] - self.origin_y) / self.resolution).astype(np.int32)
+
+        in_bounds = (gx >= 0) & (gx < self.width) & (gy >= 0) & (gy < self.height)
+        gx = gx[in_bounds]
+        gy = gy[in_bounds]
+
+        mask = np.zeros((self.height, self.width), dtype=bool)
+        if gx.size > 0:
+            mask[gy, gx] = True
+
+        mask &= (self.og_grid != 100)
+        self.latest_obstacle_mask = mask
+
+        self.get_logger().info(
+            f'Updated point-cloud mask with {int(np.count_nonzero(mask))} occupied cells'
+        )
+
+
     def detection_callback(self, msg: PoseStamped):
         if msg.header.frame_id != 'map':
             self.get_logger().warn(f"Detected object is in '{msg.header.frame_id}' frame. Please change to 'map'!")
@@ -177,6 +231,9 @@ class GridPublisher(Node):
 
         grid = self.dynamic_grid    
 
+        if self.latest_obstacle_mask is not None:
+            grid[self.latest_obstacle_mask] = 100
+
         # mark objects as occupied
         for i, (ox, oy, _) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
@@ -186,6 +243,7 @@ class GridPublisher(Node):
         grid = self.update_visibility(grid)
 
         self.dynamic_grid = grid.copy()
+        
         
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)

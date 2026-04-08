@@ -49,10 +49,14 @@ class Arm(Node):
       self.ser.write(struct.pack(f'<{len(self.cur_msg.time)}H', *self.cur_msg.time))
     
     msg = ArmFeedback()
-
+    # Flush any stale data in the buffer before reading
+   
     self.ser.read_until(b"BEGIN FEEDBACK")
     data = self.ser.read_until(b"END FEEDBACK")[:4*6]
     msg.position = struct.unpack('<6f', data)
+
+    # Flush any stale data in the buffer after reading
+    self.ser.reset_input_buffer()
 
     msg.header.frame_id = "arm_link"
     msg.header.stamp = self.get_clock().now().to_msg()
