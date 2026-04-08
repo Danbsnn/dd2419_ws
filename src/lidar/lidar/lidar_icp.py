@@ -126,11 +126,11 @@ class LidarICP(Node):
         dx = scan_pts[:, 0] - x
         dy = scan_pts[:, 1] - y
         mask = (dx*dx + dy*dy) < self.local_map_radius**2
-        cropped_pts = scan_pts[mask]
 
         current_pcd = o3d.geometry.PointCloud()
-        current_pcd.points = o3d.utility.Vector3dVector(cropped_pts)
-        current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
+        current_pcd.points = o3d.utility.Vector3dVector(scan_pts[mask])
+        current_pcd.remove_radius_outlier(nb_points=4, radius=0.15)
+        # current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
 
         if not self.map:
             self.get_logger().info("Initializing map...")
@@ -143,6 +143,9 @@ class LidarICP(Node):
         map_pc = o3d.geometry.PointCloud()
         for pc in self.map:
             map_pc += pc
+
+        map_pc.voxel_down_sample(self.voxel_size)
+
 
         # Create Local map for icp
         map_pts = np.asarray(map_pc.points)
