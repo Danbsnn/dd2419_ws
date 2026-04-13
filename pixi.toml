@@ -26,6 +26,7 @@ realsense = { cmd = "ros2 launch robp_launch realsense_launch.yaml" }
 odom = { cmd = "ros2 launch robp_boot_camp_launch boot_camp_part1_launch.xml" }
 arm_pick = { cmd = "ros2 run arm_pick arm_pick_node" }
 arm_drop = { cmd = "ros2 run arm_pick arm_drop_node" }
+sample = "python image_sampler.py --ros-args -p output_dir:=$PIXI_PROJECT_ROOT/cube_images"
 
 [tasks.phidgets_teleop]
 cmd = "python3 src/phidgets_teleop/phidgets_teleop/teleop.py"

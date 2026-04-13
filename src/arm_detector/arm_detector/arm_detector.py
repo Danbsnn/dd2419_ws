@@ -1,51 +1,75 @@
 #!/usr/bin/env python3
 """
-CubeDetector — dual-surface, wood via white-top + brown-border
-==============================================================
-Wood cube detection strategy (from pixel analysis):
-  - Top face:  S≈0,  V≈207  (near-white, very bright)
-   - Side/border: S≈33, V≈141  (warm brown, darker)
-   - Floor:    S≈10, V≈185  (grey, mid-bright)
+CubeDetector — arm camera, top-down, fisheye calibrated
+========================================================
+Outputs X,Y position in camera_link frame (metres).
+A separate node can then TF-transform to base_link.
 
-  The cube has a BRIGHT WHITE rectangle surrounded by a DARKER BROWN border.
-  This relative contrast structure is unique vs the floor.
-  Detection: find bright blobs → check darker surround → confirm square shape.
+Camera: fisheye, 640x480, mounted 20.1cm above ground facing down.
+Intrinsics from YAML calibration file.
 
-  Floor texture edge density ≈ 0.005 vs cube edge density ≈ 0.078
-  → edge density inside ROI is a strong secondary gate.
+Key improvements in this version:
+  - Stable centroid via image moments on the colour/edge mask
+    (not bounding rect centre — that jitters with contour shape changes)
+  - Fisheye undistortion applied to the centroid pixel before back-projection
+  - Real X,Y in metres published (not pixel offsets)
+  - Bounding box drawn from the stable mask, not the raw contour
 """
 
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformBroadcaster
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
 from collections import defaultdict
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CAMERA CALIBRATION  (from YAML)
+# ─────────────────────────────────────────────────────────────────────────────
+K = np.array([
+    [404.23923175620627, 2.188762593807254, 319.5],
+    [0.0,               402.195373124321,   239.5],
+    [0.0,               0.0,                1.0  ]
+], dtype=np.float64)
+
+D = np.array([
+    -0.4458703412524673,
+     2.7816594156519177,
+    -2.6362887625271108,
+    -0.7973909844908826
+], dtype=np.float64)
+
+CAMERA_HEIGHT = 0.201   # metres — camera_link Z above ground
+
+# Undistortion maps precomputed once at startup
+_map1, _map2 = cv2.fisheye.initUndistortRectifyMap(
+    K, D, np.eye(3), K, (640, 480), cv2.CV_16SC2)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TUNING
 # ─────────────────────────────────────────────────────────────────────────────
-MIN_AREA        = 800
-ASPECT_LO       = 0.58
-ASPECT_HI       = 1.58
-SOLIDITY_MIN    = 0.72
-COLOUR_MIN_FRAC = 0.15
-CONFIRM_FRAMES  = 3
-CELL_SIZE       = 30
+MIN_AREA         = 800
+ASPECT_LO        = 0.58
+ASPECT_HI        = 1.58
+SOLIDITY_MIN     = 0.72
+COLOUR_MIN_FRAC  = 0.15
+CONFIRM_FRAMES   = 3
+CELL_SIZE        = 30
 
-# Wood detection thresholds (from pixel sampling)
-WOOD_TOP_V_MIN    = 185   # white top face brightness floor
-WOOD_TOP_S_MAX    = 40    # white top face max saturation
-WOOD_BORDER_V_MAX = 175   # brown border must be darker than this
-WOOD_BORDER_S_MIN = 15    # brown border has some warmth
-WOOD_ASPECT_LO    = 0.65
-WOOD_ASPECT_HI    = 1.45
-WOOD_EDGE_DENSITY = 0.04  # min edge density inside ROI (floor≈0.005, cube≈0.078)
+# Wood
+WOOD_TOP_V_MIN   = 185
+WOOD_TOP_S_MAX   = 40
+WOOD_ASPECT_LO   = 0.65
+WOOD_ASPECT_HI   = 1.45
+WOOD_EDGE_DENSITY= 0.04
+WOOD_SOLIDITY    = 0.75
+WOOD_HULL_RATIO  = 0.82
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HSV RANGES — wood excluded, detected by structure instead
+# HSV RANGES
 # ─────────────────────────────────────────────────────────────────────────────
 COLOR_HSV_RANGES = {
     "red": [
@@ -56,8 +80,8 @@ COLOR_HSV_RANGES = {
         (np.array([28, 90, 80], np.uint8), np.array([105, 255, 255], np.uint8)),
     ],
     "blue": [
-        (np.array([82,  28, 100], np.uint8), np.array([108, 160, 255], np.uint8)),
-        (np.array([88,  80, 100], np.uint8), np.array([115, 255, 255], np.uint8)),
+        (np.array([82, 28, 100], np.uint8), np.array([108, 160, 255], np.uint8)),
+        (np.array([88, 80, 100], np.uint8), np.array([115, 255, 255], np.uint8)),
     ],
     "brown": [
         (np.array([0, 120, 70], np.uint8), np.array([18, 255, 168], np.uint8)),
@@ -76,103 +100,93 @@ _DRAW_BGR = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+def pixel_to_camera_frame(u, v):
+    """
+    Convert a distorted pixel (u,v) to X,Y in camera_link frame (metres).
+
+    Steps:
+      1. Undistort the point using fisheye model
+      2. Normalise using K (subtract principal point, divide by focal length)
+      3. Scale by camera height (flat-floor assumption: Z = CAMERA_HEIGHT)
+
+    Returns (X, Y) in metres in camera_link frame.
+    X = right,  Y = down  (optical convention, matching camera_link Z-down mount)
+    """
+    pt      = np.array([[[float(u), float(v)]]], dtype=np.float32)
+    undist  = cv2.fisheye.undistortPoints(pt, K, D, P=K)
+    u2, v2  = undist[0, 0]
+    X = (u2 - K[0, 2]) / K[0, 0] * CAMERA_HEIGHT
+    Y = (v2 - K[1, 2]) / K[1, 1] * CAMERA_HEIGHT
+    return float(X), float(Y)
+
+
+def mask_centroid(mask):
+    """
+    Return the centroid of a binary mask using image moments.
+    Much more stable than bounding-rect centre — not affected by
+    contour vertex jitter or partial edge detections.
+    Returns (cx, cy) or None if mask is empty.
+    """
+    M = cv2.moments(mask, binaryImage=True)
+    if M["m00"] < 1:
+        return None
+    return int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+
+
+def stable_bbox(mask):
+    """
+    Bounding box of the non-zero region in a mask.
+    Using the mask directly gives a box that matches what was actually
+    detected, not a contour approximation that can grow/shrink per frame.
+    """
+    pts = cv2.findNonZero(mask)
+    if pts is None:
+        return None
+    return cv2.boundingRect(pts)   # x, y, w, h
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 class CubeDetector(Node):
     def __init__(self):
         super().__init__('cube_detector')
 
         self.declare_parameter('camera_topic', '/arm/camera/image_raw')
-        self.declare_parameter('pose_topic',   '/cube_pose')
         self.declare_parameter('debug',        True)
 
         cam_topic  = self.get_parameter('camera_topic').value
-        pose_topic = self.get_parameter('pose_topic').value
         self.debug = self.get_parameter('debug').value
+        self.tf_broadcaster_ = TransformBroadcaster(self)
 
         self.sub    = self.create_subscription(
             Image, cam_topic, self.image_callback, 10)
-        self.pub    = self.create_publisher(PoseStamped, pose_topic, 10)
         self.bridge = CvBridge()
+
         self._morph_k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         self._tracker = defaultdict(lambda: [0, "unknown", None])
-        self.get_logger().info(f"CubeDetector ready | {cam_topic}")
 
-    # ── standard shape gate ───────────────────────────────────────────────────
+        self.get_logger().info(
+            f"CubeDetector ready | {cam_topic} | "
+            f"height={CAMERA_HEIGHT*100:.1f}cm | "
+            f"scale={CAMERA_HEIGHT/K[0,0]*1000:.2f}mm/px")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHAPE GATE
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _shape_ok(self, cnt, x, y, w, h):
         if not (ASPECT_LO < w / h < ASPECT_HI):
             return False
         return (cv2.contourArea(cnt) / (w * h)) >= SOLIDITY_MIN
 
-    # ── wood detection: white-top + brown-border + edge density ──────────────
-    def _is_wood(self, hsv, gray, x, y, w, h):
-        """
-        Three-part test unique to the wood cube:
+    # ══════════════════════════════════════════════════════════════════════════
+    # WOOD DETECTION
+    # ══════════════════════════════════════════════════════════════════════════
 
-        1. BRIGHT CENTRE: inner 50% of ROI must have a bright, low-sat region
-           (the white painted top face). V>185, S<40.
-
-        2. DARKER SURROUND: the border ring of the ROI must be noticeably
-           darker and warmer than the centre (brown wooden sides).
-           Border median V < centre median V - 20.
-
-        3. EDGE DENSITY: Canny edge pixel ratio inside the full ROI must
-           exceed WOOD_EDGE_DENSITY. Floor texture is near-zero; cube edges
-           are strong.
-        """
-        if not (WOOD_ASPECT_LO < w / h < WOOD_ASPECT_HI):
-            return False
-
-        roi_hsv  = hsv[y:y+h, x:x+w]
-        roi_gray = gray[y:y+h, x:x+w]
-
-        # ── test 1: bright white centre ──────────────────────────────────
-        margin  = max(4, int(min(w, h) * 0.20))   # 20% border ring
-        inner_hsv = roi_hsv[margin:h-margin, margin:w-margin]
-        if inner_hsv.size == 0:
-            return False
-
-        inner_v = np.median(inner_hsv[:, :, 2])
-        inner_s = np.median(inner_hsv[:, :, 1])
-
-        if inner_v < WOOD_TOP_V_MIN or inner_s > WOOD_TOP_S_MAX:
-            return False
-
-        # ── test 2: darker brown surround ────────────────────────────────
-        # build border mask
-        border_mask = np.ones((h, w), dtype=np.uint8)
-        border_mask[margin:h-margin, margin:w-margin] = 0
-        border_v_vals = roi_hsv[:, :, 2][border_mask == 1]
-        if border_v_vals.size == 0:
-            return False
-
-        border_v = np.median(border_v_vals)
-        # border must be meaningfully darker than the white top
-        if border_v > inner_v - 20:
-            return False
-
-        # ── test 3: edge density ─────────────────────────────────────────
-        roi_edges   = cv2.Canny(roi_gray, 30, 100)
-        edge_density = cv2.countNonZero(roi_edges) / (w * h)
-        if edge_density < WOOD_EDGE_DENSITY:
-            return False
-
-        return True
-
-    # ── PATH C: bright-blob candidates for wood ───────────────────────────────
     def _wood_candidates(self, hsv, gray):
-        """
-        Finds the wood cube white top face.
-        Key filters that separate cube from floor reflections:
-          - solidity  >= 0.75  (cube is solid rectangle; reflection is ragged)
-          - hull_ratio >= 0.82 (convex hull tightly wraps a cube; not a blob)
-          - aspect    0.65-1.45 (square-ish)
-        Floor reflection measured: solidity=0.43, hull_ratio=0.59 → both fail.
-        """
-        v_channel  = hsv[:, :, 2]
-        s_channel  = hsv[:, :, 1]
-        bright     = cv2.inRange(v_channel, 185, 255)
-        low_sat    = cv2.inRange(s_channel, 0, 40)
+        bright     = cv2.inRange(hsv[:, :, 2], WOOD_TOP_V_MIN, 255)
+        low_sat    = cv2.inRange(hsv[:, :, 1], 0, WOOD_TOP_S_MAX)
         white_mask = cv2.bitwise_and(bright, low_sat)
-
         white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_OPEN,
                                       self._morph_k, iterations=2)
         white_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE,
@@ -186,62 +200,52 @@ class CubeDetector(Node):
             area = cv2.contourArea(cnt)
             if area < MIN_AREA * 0.4:
                 continue
-
             x, y, w, h = cv2.boundingRect(cnt)
-
-            # aspect ratio gate
             if not (WOOD_ASPECT_LO < w / h < WOOD_ASPECT_HI):
                 continue
-
-            # solidity gate — rejects ragged floor reflections
-            solidity = area / (w * h)
-            if solidity < 0.75:
+            if area / (w * h) < WOOD_SOLIDITY:
                 continue
-
-            # convex hull ratio — rejects irregular blobs
             hull      = cv2.convexHull(cnt)
             hull_area = cv2.contourArea(hull)
-            if hull_area == 0 or (area / hull_area) < 0.82:
+            if hull_area == 0 or (area / hull_area) < WOOD_HULL_RATIO:
                 continue
-
-            # passed — expand bbox to include brown border
             pad = max(6, int(min(w, h) * 0.18))
             x2  = max(0, x - pad)
             y2  = max(0, y - pad)
             w2  = min(gray.shape[1] - x2, w + 2 * pad)
             h2  = min(gray.shape[0] - y2, h + 2 * pad)
-            cands.append((x2, y2, w2, h2))
-
+            # return the white_mask ROI so centroid is computed from it
+            cands.append((x2, y2, w2, h2, white_mask))
         return white_mask, cands
 
-    # ── colour classify ───────────────────────────────────────────────────────
-    def _classify_roi(self, hsv, x, y, w, h):
-        roi      = hsv[y:y+h, x:x+w]
-        roi_area = w * h
-        best_color, best_frac = "unknown", 0.0
-        for color, bands in COLOR_HSV_RANGES.items():
-            mask = np.zeros((h, w), dtype=np.uint8)
-            for lo, hi in bands:
-                mask |= cv2.inRange(roi, lo, hi)
-            frac = cv2.countNonZero(mask) / roi_area
-            if frac > best_frac and frac >= COLOUR_MIN_FRAC:
-                best_frac, best_color = frac, color
-        return best_color, best_frac
+    def _is_wood(self, hsv, gray, x, y, w, h):
+        if not (WOOD_ASPECT_LO < w / h < WOOD_ASPECT_HI):
+            return False
+        roi_hsv  = hsv[y:y+h, x:x+w]
+        roi_gray = gray[y:y+h, x:x+w]
+        margin   = max(4, int(min(w, h) * 0.20))
+        inner    = roi_hsv[margin:h-margin, margin:w-margin]
+        if inner.size == 0:
+            return False
+        if np.median(inner[:, :, 2]) < WOOD_TOP_V_MIN:
+            return False
+        if np.median(inner[:, :, 1]) > WOOD_TOP_S_MAX:
+            return False
+        border_mask = np.ones((h, w), dtype=np.uint8)
+        border_mask[margin:h-margin, margin:w-margin] = 0
+        border_v = roi_hsv[:, :, 2][border_mask == 1]
+        if border_v.size == 0:
+            return False
+        if np.median(border_v) > np.median(inner[:, :, 2]) - 20:
+            return False
+        edge_density = cv2.countNonZero(
+            cv2.Canny(roi_gray, 30, 100)) / (w * h)
+        return edge_density >= WOOD_EDGE_DENSITY
 
-    # ── temporal ──────────────────────────────────────────────────────────────
-    def _tick(self, cell, color, bbox):
-        e = self._tracker[cell]
-        e[0] += 1; e[1] = color; e[2] = bbox
-        return e[0] >= CONFIRM_FRAMES
+    # ══════════════════════════════════════════════════════════════════════════
+    # PATH A — edges
+    # ══════════════════════════════════════════════════════════════════════════
 
-    def _age(self, active):
-        for cell in list(self._tracker):
-            if cell not in active:
-                self._tracker[cell][0] -= 1
-                if self._tracker[cell][0] <= 0:
-                    del self._tracker[cell]
-
-    # ── PATH A: edges ─────────────────────────────────────────────────────────
     def _edge_candidates(self, gray):
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges   = cv2.Canny(blurred, 35, 115)
@@ -264,103 +268,203 @@ class CubeDetector(Node):
                 cands.append((x, y, w, h, cnt))
         return edges, cands
 
-    # ── PATH B: colour blobs ──────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # PATH B — largest colour blob per colour
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _colour_candidates(self, hsv):
+        """
+        Returns per-colour masks too — centroid computed from the mask
+        directly for stability, not from the bounding rect.
+        """
         combined = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        for color, bands in COLOR_HSV_RANGES.items():
-            if color not in BLOB_COLOURS:
+        cands    = []
+
+        for color in BLOB_COLOURS:
+            cmask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+            for lo, hi in COLOR_HSV_RANGES[color]:
+                cmask |= cv2.inRange(hsv, lo, hi)
+            cmask = cv2.morphologyEx(cmask, cv2.MORPH_OPEN,
+                                     self._morph_k, iterations=2)
+            cmask = cv2.morphologyEx(cmask, cv2.MORPH_CLOSE,
+                                     self._morph_k, iterations=3)
+
+            cnts, _ = cv2.findContours(
+                cmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not cnts:
                 continue
-            for lo, hi in bands:
-                combined |= cv2.inRange(hsv, lo, hi)
-        combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN,
-                                    self._morph_k, iterations=2)
-        combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE,
-                                    self._morph_k, iterations=3)
-        cnts, _ = cv2.findContours(
-            combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cands = []
-        for cnt in cnts:
+            cnt = max(cnts, key=cv2.contourArea)
             if cv2.contourArea(cnt) < MIN_AREA:
                 continue
             x, y, w, h = cv2.boundingRect(cnt)
-            if ASPECT_LO < w / h < ASPECT_HI:
-                cands.append((x, y, w, h, None))
+            if not (ASPECT_LO < w / h < ASPECT_HI):
+                continue
+
+            # build a clean single-object mask for stable centroid
+            obj_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+            cv2.drawContours(obj_mask, [cnt], -1, 255, -1)
+
+            combined |= cmask
+            cands.append((x, y, w, h, color, obj_mask))
+
         return combined, cands
 
-    # ── main callback ─────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # TEMPORAL GATE
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _tick(self, cell, color, bbox):
+        e = self._tracker[cell]
+        e[0] += 1; e[1] = color; e[2] = bbox
+        return e[0] >= CONFIRM_FRAMES
+
+    def _age(self, active):
+        for cell in list(self._tracker):
+            if cell not in active:
+                self._tracker[cell][0] -= 1
+                if self._tracker[cell][0] <= 0:
+                    del self._tracker[cell]
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MAIN CALLBACK
+    # ══════════════════════════════════════════════════════════════════════════
+
     def image_callback(self, msg):
         frame          = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         h_img, w_img   = frame.shape[:2]
         cx_img, cy_img = w_img // 2, h_img // 2
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        hsv  = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        # undistort full frame for display only
+        frame_undist = cv2.remap(frame, _map1, _map2,
+                                 interpolation=cv2.INTER_LINEAR)
 
-        edges,  edge_cands   = self._edge_candidates(gray)
-        cmask,  colour_cands = self._colour_candidates(hsv)
-        wmask,  wood_cands   = self._wood_candidates(hsv, gray)
+        gray = cv2.cvtColor(frame_undist, cv2.COLOR_BGR2GRAY)
+        hsv  = cv2.cvtColor(frame_undist, cv2.COLOR_BGR2HSV)
 
-        # merge all three paths — edge path has priority (keeps cnt)
+        edges, edge_cands   = self._edge_candidates(gray)
+        cmask, colour_cands = self._colour_candidates(hsv)
+        wmask, wood_cands   = self._wood_candidates(hsv, gray)
+
+        # ── merge ─────────────────────────────────────────────────────────
+        # cell -> (x,y,w,h, cnt_or_None, path, known_color_or_None, obj_mask_or_None)
         all_cands = {}
+
         for (x, y, w, h, cnt) in edge_cands:
             cell = (x // CELL_SIZE, y // CELL_SIZE)
-            all_cands[cell] = (x, y, w, h, cnt, "edge")
-        for (x, y, w, h, _) in colour_cands:
-            cell = (x // CELL_SIZE, y // CELL_SIZE)
-            if cell not in all_cands:
-                all_cands[cell] = (x, y, w, h, None, "colour")
-        for (x, y, w, h) in wood_cands:
-            cell = (x // CELL_SIZE, y // CELL_SIZE)
-            if cell not in all_cands:
-                all_cands[cell] = (x, y, w, h, None, "wood")
+            all_cands[cell] = (x, y, w, h, cnt, "edge", None, None)
 
-        vis          = frame.copy()
+        for (x, y, w, h, known_color, obj_mask) in colour_cands:
+            cell = (x // CELL_SIZE, y // CELL_SIZE)
+            if cell not in all_cands:
+                all_cands[cell] = (x, y, w, h, None, "colour",
+                                   known_color, obj_mask)
+
+        for (x, y, w, h, wmask_ref) in wood_cands:
+            cell = (x // CELL_SIZE, y // CELL_SIZE)
+            if cell not in all_cands:
+                all_cands[cell] = (x, y, w, h, None, "wood", None, wmask_ref)
+
+        vis          = frame_undist.copy()
         active_cells = set()
         cv2.drawMarker(vis, (cx_img, cy_img),
                        (200, 200, 200), cv2.MARKER_CROSS, 20, 1)
 
-        for cell, (x, y, w, h, cnt, path) in all_cands.items():
+        for cell, (x, y, w, h, cnt, path, known_color, obj_mask) in all_cands.items():
 
-            # colour vote (red/green/blue/brown)
-            color, frac = self._classify_roi(hsv, x, y, w, h)
-
-            # wood fallback: white-top + brown-border + edge-density test
-            if color == "unknown":
-                if self._is_wood(hsv, gray, x, y, w, h):
-                    color, frac = "wood", 0.0
+            # ── determine colour ──────────────────────────────────────────
+            if known_color is not None:
+                # PATH B: colour already known from blob detection
+                color = known_color
+            else:
+                # PATH A / C: run colour vote
+                color, _ = self._classify_roi(hsv, x, y, w, h)
+                if color == "unknown":
+                    if self._is_wood(hsv, gray, x, y, w, h):
+                        color = "wood"
 
             if color == "unknown":
                 continue
 
+            # ── stable centroid from mask ─────────────────────────────────
+            # Build a mask for this detection to get a stable centroid.
+            # PATH B has obj_mask already. Others: build from colour mask
+            # within the bbox, or edge mask for wood.
+            if obj_mask is not None:
+                det_mask = obj_mask
+            elif color == "wood":
+                # use white blob mask clipped to bbox
+                det_mask = wmask[y:y+h, x:x+w]
+                # re-expand to full image coords for moments
+                full_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+                full_mask[y:y+h, x:x+w] = det_mask
+                det_mask = full_mask
+            else:
+                # build colour mask within bbox for this colour
+                roi_hsv   = hsv[y:y+h, x:x+w]
+                roi_mask  = np.zeros((h, w), dtype=np.uint8)
+                for lo, hi in COLOR_HSV_RANGES[color]:
+                    roi_mask |= cv2.inRange(roi_hsv, lo, hi)
+                full_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+                full_mask[y:y+h, x:x+w] = roi_mask
+                det_mask = full_mask
+
+            centroid = mask_centroid(det_mask)
+            if centroid is None:
+                centroid = (x + w // 2, y + h // 2)   # fallback
+
+            u_px, v_px = centroid
+
+            # stable bbox from the mask (not from raw contour)
+            bbox = stable_bbox(det_mask)
+            if bbox is not None:
+                bx, by, bw, bh = bbox
+            else:
+                bx, by, bw, bh = x, y, w, h
+
+            # ── temporal gate ─────────────────────────────────────────────
             active_cells.add(cell)
-            if not self._tick(cell, color, (x, y, w, h)):
-                cv2.rectangle(vis, (x, y), (x+w, y+h), (80, 80, 80), 1)
+            if not self._tick(cell, color, (bx, by, bw, bh)):
+                cv2.rectangle(vis, (bx, by), (bx+bw, by+bh), (80, 80, 80), 1)
                 continue
 
-            obj_cx = x + w // 2
-            obj_cy = y + h // 2
-            dx_px  = obj_cx - cx_img
-            dy_px  = obj_cy - cy_img
+            # ── back-project to camera_link frame (metres) ────────────────
+            X_m, Y_m = pixel_to_camera_frame(u_px, v_px)
 
-            out = PoseStamped()
-            out.header.stamp    = self.get_clock().now().to_msg()
-            out.header.frame_id = "camera_frame"
-            out.pose.position.x = float(dx_px)
-            out.pose.position.y = float(dy_px)
-            out.pose.position.z = 0.0
-            self.pub.publish(out)
+            # ── broadcast ───────────────────────────────────────────────────
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = 'camera_link'
+            t.child_frame_id = 'object_detected'
+
+            # Position from command line
+            t.transform.translation.x = X_m
+            t.transform.translation.y = Y_m
+            t.transform.translation.z = CAMERA_HEIGHT
+
+            # Use parent's orientation (identity quaternion)
+            t.transform.rotation.x = 0.0
+            t.transform.rotation.y = 0.0
+            t.transform.rotation.z = 0.0
+            t.transform.rotation.w = 1.0
+            self.tf_broadcaster_.sendTransform(t)
+
+            
 
             self.get_logger().info(
-                f"{color}_cube  offset=({dx_px:+d},{dy_px:+d})px  "
-                f"path={path}  colour={frac*100:.0f}%")
+                f"{color}_cube  "
+                f"px=({u_px},{v_px})  "
+                f"cam=({X_m:+.3f},{Y_m:+.3f})m  "
+                f"path={path}")
 
+            # ── draw — use stable mask bbox + moment centroid ─────────────
             dc = _DRAW_BGR[color]
-            cv2.rectangle(vis, (x, y), (x+w, y+h), dc, 2)
-            cv2.circle(vis, (obj_cx, obj_cy), 5, (255, 255, 255), -1)
-            cv2.line(vis, (cx_img, cy_img), (obj_cx, obj_cy), dc, 1)
-            cv2.putText(vis, f"{color} ({dx_px:+d},{dy_px:+d})px",
-                        (x, max(y - 8, 12)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, dc, 2)
+            cv2.rectangle(vis, (bx, by), (bx+bw, by+bh), dc, 2)
+            cv2.circle(vis, (u_px, v_px), 5, (255, 255, 255), -1)
+            cv2.line(vis, (cx_img, cy_img), (u_px, v_px), dc, 1)
+            cv2.putText(vis,
+                        f"{color} ({X_m:+.3f},{Y_m:+.3f})m",
+                        (bx, max(by - 8, 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.48, dc, 2)
 
         self._age(active_cells)
 
@@ -374,7 +478,21 @@ class CubeDetector(Node):
             except Exception:
                 pass
 
+    def _classify_roi(self, hsv, x, y, w, h):
+        roi      = hsv[y:y+h, x:x+w]
+        roi_area = w * h
+        best_color, best_frac = "unknown", 0.0
+        for color, bands in COLOR_HSV_RANGES.items():
+            mask = np.zeros((h, w), dtype=np.uint8)
+            for lo, hi in bands:
+                mask |= cv2.inRange(roi, lo, hi)
+            frac = cv2.countNonZero(mask) / roi_area
+            if frac > best_frac and frac >= COLOUR_MIN_FRAC:
+                best_frac, best_color = frac, color
+        return best_color, best_frac
 
+
+# ─────────────────────────────────────────────────────────────────────────────
 def main(args=None):
     rclpy.init(args=args)
     node = CubeDetector()

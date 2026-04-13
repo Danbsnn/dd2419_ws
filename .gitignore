@@ -53,10 +53,7 @@ CATKIN_IGNORE
 # Pixi
 **/files.txt
 
-# Rosbags
-bags/*
-*.db3
-*.mcap
+
 
 # VS Code
 .vscode
