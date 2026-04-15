@@ -9,6 +9,7 @@ from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import MarkerArray
 from robp_interfaces.srv import GetNextFrontier
+from robp_interfaces.msg import PoseStampedWithType
 
 
 class GeneralPlanner(Node):
@@ -28,7 +29,7 @@ class GeneralPlanner(Node):
 
         # publisher
         self.goal_pub = self.create_publisher(
-            PoseStamped,
+            PoseStampedWithType,
             '/goal_pose',
             10
         )
@@ -103,15 +104,17 @@ class GeneralPlanner(Node):
             return None
         
     # Navigation
-    def publish_goal(self, x, y, w=1.0):
+    def publish_goal(self, t, x, y, w=1.0):
 
-        goal = PoseStamped()
-        goal.header.frame_id = "map"
-        goal.header.stamp = self.get_clock().now().to_msg()
+        goal = PoseStampedWithType()
+        goal.pose.header.frame_id = "map"
+        goal.pose.header.stamp = self.get_clock().now().to_msg()
 
-        goal.pose.position.x = x
-        goal.pose.position.y = y
-        goal.pose.orientation.w = w
+        goal.pose.pose.position.x = x
+        goal.pose.pose.position.y = y
+        goal.pose.pose.orientation.w = w
+
+        goal.type = t
 
         self.current_goal = goal
         self.goal_pub.publish(goal)
@@ -212,6 +215,7 @@ class GeneralPlanner(Node):
                 self.current_target_id = obj_id
                 position_o_x, position_o_y, orientation_o = self.get_near_object(pose.position.x, pose.position.y)
                 self.publish_goal(
+                    "O",
                     position_o_x,
                     position_o_y,
                     orientation_o
@@ -240,6 +244,7 @@ class GeneralPlanner(Node):
             print("Box choosed")
             position_b_x, position_b_y, orientation_b = self.get_near_box(box.position.x, box.position.y)
             self.publish_goal(
+                "B",
                 position_b_x,
                 position_b_y,
                 orientation_b
