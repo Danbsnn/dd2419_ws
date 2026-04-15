@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 
-from robp_interfaces.msg import DutyCycles
+from robp_interfaces.msg import DutyCycles, PoseStampedWithType
 from std_msgs.msg import Bool
 from geometry_msgs.msg import Point, PoseStamped
 from tf_transformations import euler_from_quaternion
@@ -37,7 +37,7 @@ class MotionControl(Node):
                                 self.goal_callback,
                                 10
                             )
-        self.goal_pose_sub = self.create_subscription(PoseStamped,
+        self.goal_pose_sub = self.create_subscription(PoseStampedWithType,
                                                 '/goal_pose',
                                                 self.goal_pose_callback,
                                                 10)
@@ -46,11 +46,11 @@ class MotionControl(Node):
         self.L = 0.30         # wheel separation (m)
 
         # Controller gains
-        self.k1 = 0.6  # Velocity constant
-        self.k2 = 2.0  # Angle
+        self.k1 = 0.8  # Velocity constant
+        self.k2 = 2.5  # Angle
         self.k3 = 5  # Angle to velo constant
-        self.v_max = 0.5
-        self.omega_max = 0.6
+        self.v_max = 0.4
+        self.omega_max = 0.7
 
         # Control loop
         self.timer = self.create_timer(0.1, self.control_loop)

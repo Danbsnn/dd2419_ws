@@ -230,6 +230,8 @@ class GridPublisher(Node):
         m.info.origin.position.z = 0.0
 
         grid = self.dynamic_grid    
+        grid = self.update_visibility(grid)
+        self.dynamic_grid = grid.copy()
 
         if self.latest_obstacle_mask is not None:
             grid[self.latest_obstacle_mask] = 100
@@ -239,12 +241,7 @@ class GridPublisher(Node):
             if self.object_types[i] in ['O', 'B']:
                 gx, gy = int((ox-self.origin_x)/self.resolution), int((oy-self.origin_y)/self.resolution)
                 grid[max(0, gy-1):gy+2, max(0, gx-1):gx+2] = 100
-
-        grid = self.update_visibility(grid)
-
-        self.dynamic_grid = grid.copy()
-        
-        
+                
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 

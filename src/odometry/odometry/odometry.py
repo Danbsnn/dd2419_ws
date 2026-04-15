@@ -32,7 +32,7 @@ class OdometryEKF(Node):
         self.q_yaw_per_rad = float(2e-2)
 
         # no covariance for yaw from imu
-        self.imu_yaw_variance_default = float(2.5e-3)
+        self.imu_yaw_variance_default = float(5e-3)
 
         # stationary robot
         self.stationary_distance_threshold = float(1e-4)
@@ -60,7 +60,7 @@ class OdometryEKF(Node):
         self.right_encoder = None
 
         # (for publishing odom).
-        self._last_time: Optional[float] = None
+        self._last_time = None
         self._last_x = 0.0
         self._last_y = 0.0
         self._last_yaw = 0.0
@@ -97,11 +97,13 @@ class OdometryEKF(Node):
         self._current_imu_yaw = yaw
 
         # Use orientation covariance
-        cov = list(msg.orientation_covariance)
-        if len(cov) == 9 and cov[8] >= 0.0:
-            self._current_imu_yaw_variance = max(cov[8], 1e-9)
+        # cov = list(msg.orientation_covariance)
+        """if len(cov) == 9 and cov[8] >= 0.0:
+            self.get_logger().info(f"imu covariance: {cov[8]}")
+            self._current_imu_yaw_variance = max(cov[8], 1e-3)
         else:
-            self._current_imu_yaw_variance = self.imu_yaw_variance_default
+            self._current_imu_yaw_variance = self.imu_yaw_variance_default"""
+        self._current_imu_yaw_variance = 1e-3
 
     def ekf_predict(self, d: float, dtheta: float):
         x, y, yaw = self.get_pose()
@@ -254,6 +256,8 @@ class OdometryEKF(Node):
         pose_cov[35] = float(self.P[2, 2])  # yaw
         odom.pose.covariance = pose_cov
 
+        # self.get_logger().info(f"covariances, x: {pose_cov[0]}, y: {pose_cov[7]}, yaw: {pose_cov[35]}")
+
         current_time = rclpy.time.Time.from_msg(stamp).nanoseconds / 1e9
         if self._last_time is None:
             self._last_time = current_time
@@ -286,15 +290,6 @@ class OdometryEKF(Node):
         odom.twist.twist.linear.x = vx_body
         odom.twist.twist.linear.y = vy_body
         odom.twist.twist.angular.z = wz
-
-        # twist_cov = [0.0] * 36
-        # twist_cov[0] = self.twist_linear_var
-        # twist_cov[7] = self.twist_linear_var
-        # twist_cov[14] = 1e6
-        # twist_cov[21] = 1e6
-        # twist_cov[28] = 1e6
-        # twist_cov[35] = self.twist_angular_var
-        # odom.twist.covariance = twist_cov
 
         self.odom_pub.publish(odom)
 

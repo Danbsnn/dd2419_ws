@@ -21,8 +21,6 @@ class LidarICP(Node):
     def __init__(self):
         super().__init__('lidar_icp')
 
-        self.last_scan = None
-
         self.tf_broadcaster = TransformBroadcaster(self)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -35,25 +33,46 @@ class LidarICP(Node):
         self.create_subscription(Pose, '/initial_pose', self.init_pose_callback, 10)
         self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
 
-        self.map = []
-        self.max_scans = 10
-
         self.last_icp_pose = None
         self.last_update_pose = None
 
         self.T_map_to_odom = None
+        self.T_map_to_odom_internal = None
         
         self.odom = None
-        self.max_angular_speed = 0.3  # Faster and icp won't be performed
+
+        self.map = []
+        self.map_idx = 0
+
+        # PARAMETERS:
+        # Map param
+        self.max_scans_in_vicinity = 10
+        self.scan_vicinity_radius = 2
+        self.voxel_size = 0.05  # Downsampling
+
+        # Outlier filtering
+        self.nearby_points = 4
+        self.outlier_radius = 0.2
 
         # ICP param
-        self.icp_distance_threshold = 0.2
-        self.voxel_size = 0.05
-        self.local_map_radius = 4
+        self.icp_distance_threshold = 0.08
+        self.local_map_radius = 3.5  # How big area perform icp on and add to map
+        self.min_fitness = 0.4
+        self.max_inlier_rmse = 0.2
 
-        self.tf_timer = self.create_timer(0.05, self.publish_map_to_odom)
+        # How often to run icp
+        self.max_angular_speed = 0.1 # Faster and icp won't be performed
+        self.linear_run_icp = 0.3
+        self.angular_run_icp = 0.1
 
-        self.get_logger().info("Lidar node running...")
+        # Publishing map to odom param
+        # Lower value equals smoother (although bigger delay)
+        self.alpha_xy = 0.05
+        self.alpha_yaw = 0.01
+
+        self.tf_timer = self.create_timer(0.1, self.publish_map_to_odom)
+
+        self.get_logger().info("ICP node running...")
 
     def odom_callback(self, msg):
         self.odom = msg
@@ -70,6 +89,7 @@ class LidarICP(Node):
             [0, 0, 1, 0],
             [0, 0, 0, 1]
         ])
+        self.T_map_to_odom_internal = self.T_map_to_odom.copy()
 
         self.get_logger().info("Initial pose set")
 
@@ -85,67 +105,39 @@ class LidarICP(Node):
         start_time = rclpy.time.Time.from_msg(msg.header.stamp)
 
         try:
-            tf_start = self.tf_buffer.lookup_transform(
-                'map', 
-                'lidar_link', #msg.header.frame_id, 
-                start_time,
-                rclpy.duration.Duration(seconds=0.1)
-            )
+            T_map_to_lidar_pred = self.get_internal_lidar_pose(start_time)
         except Exception as e:
-            self.get_logger().warn(f"Could not transform lidar to map: {e}")
+            self.get_logger().warn(f"Could not get internal lidar pose: {e}")
             return
-        
-        x, y = tf_start.transform.translation.x, tf_start.transform.translation.y
-        q = tf_start.transform.rotation
-        (_, _, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        x, y, yaw = self.pose_from_T(T_map_to_lidar_pred)
 
         if not self.should_run_icp(x, y, yaw):
             self.publish_map()
             return
 
-        ranges = np.array(msg.ranges)
-        angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
-
-        valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
-        valid_ranges = ranges[valid_mask]
-        valid_angles = angles[valid_mask]
-
-        if len(valid_ranges) < 20:
+        current_pcd = self.scan_msg_to_map_pcd(msg, x, y, yaw)
+        if current_pcd is None:
             return
-        
-        # lidar_linkmap_pts
-        lx = valid_ranges * np.cos(valid_angles)
-        ly = valid_ranges * np.sin(valid_angles)
-        # map-frame
-        gx = lx * np.cos(yaw) - ly * np.sin(yaw) + x
-        gy = lx * np.sin(yaw) + ly * np.cos(yaw) + y
-
-        scan_pts = np.column_stack((gx, gy, np.zeros(len(gx))))
-
-        # Confine scan points to the local map, so we aren't comparing different things
-        dx = scan_pts[:, 0] - x
-        dy = scan_pts[:, 1] - y
-        mask = (dx*dx + dy*dy) < self.local_map_radius**2
-
-        current_pcd = o3d.geometry.PointCloud()
-        current_pcd.points = o3d.utility.Vector3dVector(scan_pts[mask])
-        current_pcd.remove_radius_outlier(nb_points=4, radius=0.15)
-        # current_pcd = current_pcd.voxel_down_sample(self.voxel_size)
-
+            
         if not self.map:
             self.get_logger().info("Initializing map...")
-            self.map.append(current_pcd)
+            map_entry = {
+                "id": self.map_idx,
+                "pc": current_pcd,
+                "pose": (x, y, yaw),
+            }
+            self.map.append(map_entry)
             self.last_icp_pose = (x, y, yaw)
             self.last_update_pose = (x, y, yaw)
+            self.map_idx += 1
             self.publish_map()
             return
 
         map_pc = o3d.geometry.PointCloud()
-        for pc in self.map:
-            map_pc += pc
+        for m in self.map:
+            map_pc += m["pc"]
 
-        map_pc.voxel_down_sample(self.voxel_size)
-
+        map_pc = map_pc.voxel_down_sample(self.voxel_size)
 
         # Create Local map for icp
         map_pts = np.asarray(map_pc.points)
@@ -156,9 +148,6 @@ class LidarICP(Node):
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
         local_map = local_map.voxel_down_sample(self.voxel_size)
 
-        # current_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
-        # local_map.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.5, max_nn=30))
-
         # Perform ICP using open3d
         icp_result = o3d.pipelines.registration.registration_icp(
             source=current_pcd,
@@ -167,41 +156,47 @@ class LidarICP(Node):
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint()
         )
         T_icp = icp_result.transformation
+
+        dx, dy, dyaw = self.pose_from_T(T_icp)
+        dtrans = np.hypot(dx, dy)
         
-        if icp_result.fitness < 0.3 or icp_result.inlier_rmse > 0.2:
-            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse high: f{icp_result.inlier_rmse:.2f}")
+        if icp_result.fitness < self.min_fitness or icp_result.inlier_rmse > self.max_inlier_rmse:
+            self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse high: {icp_result.inlier_rmse:.2f}")
+            return
+
+        # This is just to avoid huge jumps
+        if dtrans > 0.2 or abs(dyaw) > np.deg2rad(4.0):
+            self.get_logger().warn("The icp wanted to jump way too far!!!")
             return
                 
-        self.T_map_to_odom = T_icp @ self.T_map_to_odom
+        self.T_map_to_odom_internal = T_icp @ self.T_map_to_odom_internal
 
-        
         
         self.get_logger().info(f"icp fitness: {icp_result.fitness:.2f}")
 
         current_pcd.transform(T_icp)
+        T_map_to_lidar_corr = T_icp @ T_map_to_lidar_pred
+        x_corr, y_corr, yaw_corr = self.pose_from_T(T_map_to_lidar_corr)
 
-        self.map.append(current_pcd)
-        if len(self.map) > self.max_scans:
-                self.map.pop(0)
+        map_entry = {
+                "id": self.map_idx,
+                "pc": current_pcd,
+                "pose": (x_corr, y_corr, yaw_corr),
+            }
+        self.map_idx += 1
+        self.map.append(map_entry)
+        self.prune_old_scans_in_vicinity(x_corr, y_corr)
 
-        # self.map = self.map.voxel_down_sample(voxel_size=self.voxel_size)
-        # map_size = len(np.asarray(self.map.points))
-        # self.get_logger().info(f"Scan size: {map_size} points")
-
-        # if map_size > 200:
-        #    self.get_logger().info("Resetting map")
-        #    self.map = None
         self.last_update_pose = (x, y, yaw)
 
         self.publish_map()
-
 
     def publish_map(self):
         if not self.map:
             return
         map_pc = o3d.geometry.PointCloud()
-        for pc in self.map:
-            map_pc += pc
+        for m in self.map:
+            map_pc += m["pc"]
 
         map_np = np.asarray(map_pc.points)
         points = map_np.tolist()
@@ -211,7 +206,6 @@ class LidarICP(Node):
         
         msg = point_cloud2.create_cloud_xyz32(header, points)
         self.pc_pub.publish(msg)
-
     
     def should_run_icp(self, x, y, yaw):
         if self.last_update_pose is None:
@@ -221,7 +215,7 @@ class LidarICP(Node):
         dist = np.sqrt((x-last_x)**2 + (y-last_y)**2)
         angle_diff = abs(self.wrap_to_pi(yaw-last_yaw))
 
-        return dist > 0.3 or angle_diff > 0.15
+        return dist > self.linear_run_icp or angle_diff > self.angular_run_icp
 
     def wrap_to_pi(self, angle):
         return (angle+np.pi)%(2*np.pi)-np.pi
@@ -230,10 +224,31 @@ class LidarICP(Node):
         if self.T_map_to_odom is None:
             return
 
+        x_pub, y_pub, yaw_pub = self.pose_from_T(self.T_map_to_odom)
+        x_int, y_int, yaw_int = self.pose_from_T(self.T_map_to_odom_internal)
+        
+        dx = x_int - x_pub
+        dy = y_int - y_pub
+        dyaw = self.wrap_to_pi(yaw_int - yaw_pub)
+
+        # clamp
+        max_step_xy = 0.01          # 1 cm per timer tick
+        max_step_yaw = np.deg2rad(0.2)
+
+        dx = np.clip(dx, -max_step_xy, max_step_xy)
+        dy = np.clip(dy, -max_step_xy, max_step_xy)
+        dyaw = np.clip(dyaw, -max_step_yaw, max_step_yaw)
+
+        x_new = x_pub + self.alpha_xy * dx
+        y_new = y_pub + self.alpha_xy * dy
+        yaw_new = yaw_pub + self.alpha_yaw * dyaw
+
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = "map"
         t.child_frame_id = "odom"
+
+        self.T_map_to_odom = self.T_from_pose(x_new, y_new, yaw_new)
 
         T = self.T_map_to_odom
 
@@ -250,6 +265,116 @@ class LidarICP(Node):
 
         self.tf_broadcaster.sendTransform(t)
 
+    def pose_from_T(self, T):
+        x = float(T[0, 3])
+        y = float(T[1, 3])
+        yaw = float(np.arctan2(T[1, 0], T[0, 0]))
+        return x, y, yaw
+    
+    def T_from_pose(self, x, y, yaw):
+        c, s = np.cos(yaw), np.sin(yaw)
+        return np.array([
+            [c, -s, 0, x],
+            [s,  c, 0, y],
+            [0,  0, 1, 0],
+            [0,  0, 0, 1],
+        ], dtype=float)
+
+    def tf_to_T(self, tf_msg):
+        q = tf_msg.transform.rotation
+        x = tf_msg.transform.translation.x
+        y = tf_msg.transform.translation.y
+        (_, _, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        return self.T_from_pose(x, y, yaw)
+
+    def get_internal_lidar_pose(self, stamp):
+        tf_odom_to_lidar = self.tf_buffer.lookup_transform(
+            'odom',
+            'lidar_link',
+            stamp,
+            rclpy.duration.Duration(seconds=0.1)
+        )
+        T_odom_to_lidar = self.tf_to_T(tf_odom_to_lidar)
+        T_map_to_lidar = self.T_map_to_odom_internal @ T_odom_to_lidar
+        return T_map_to_lidar
+
+    def scan_msg_to_map_pcd(self, msg, x, y, yaw):
+        ranges = np.array(msg.ranges)
+        angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
+
+        valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+        valid_ranges = ranges[valid_mask]
+        valid_angles = angles[valid_mask]
+
+        if len(valid_ranges) < 20:
+            return None
+
+        lx = valid_ranges * np.cos(valid_angles)
+        ly = valid_ranges * np.sin(valid_angles)
+
+        gx = lx * np.cos(yaw) - ly * np.sin(yaw) + x
+        gy = lx * np.sin(yaw) + ly * np.cos(yaw) + y
+
+        scan_pts = np.column_stack((gx, gy, np.zeros(len(gx))))
+
+        dx = scan_pts[:, 0] - x
+        dy = scan_pts[:, 1] - y
+        mask = (dx * dx + dy * dy) < self.local_map_radius ** 2
+
+        cropped = scan_pts[mask]
+        if len(cropped) < 20:
+            return None
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cropped)
+
+        pcd = pcd.voxel_down_sample(self.voxel_size)
+        pcd, _ = pcd.remove_radius_outlier(
+            nb_points=self.nearby_points,
+            radius=self.outlier_radius
+        )
+
+        if len(np.asarray(pcd.points)) < 20:
+            return None
+
+        return pcd
+
+    def prune_old_scans_in_vicinity(self, x, y):
+        nearby = []
+
+        for i, entry in enumerate(self.map):
+            sx, sy, _ = entry["pose"]
+            dist = np.hypot(sx - x, sy - y)
+            if dist <= self.scan_vicinity_radius:
+                nearby.append((i, entry))
+
+        if len(nearby) <= self.max_scans_in_vicinity:
+            return
+
+        # Sort by id so the oldest scans come first
+        nearby.sort(key=lambda item: item[1]["id"])
+
+        # Remove as many oldest nearby scans as needed, but keep the newest one
+        num_to_remove = len(nearby) - self.max_scans_in_vicinity
+        removed = 0
+
+        newest_id = max(entry["id"] for _, entry in nearby)
+
+        indices_to_remove = []
+        for i, entry in nearby:
+            if removed >= num_to_remove:
+                break
+            if entry["id"] == newest_id:
+                continue
+            indices_to_remove.append(i)
+            removed += 1
+
+        # Remove from back to front so indices stay valid
+        for i in sorted(indices_to_remove, reverse=True):
+            removed_entry = self.map.pop(i)
+            self.get_logger().info(
+                f"Pruned old nearby scan id={removed_entry['id']}"
+            )
 
 def main():
     rclpy.init()

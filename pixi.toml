@@ -124,6 +124,7 @@ ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
 ros-jazzy-exploration-planner = { path = "src/exploration_planner" }
 ros-jazzy-navigation = { path = "src/navigation" }
+ros-jazzy-general-planner = { path = "src/general_planner" }
 
 
 # Other

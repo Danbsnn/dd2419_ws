@@ -42,7 +42,7 @@ D = np.array([
     -0.7973909844908826
 ], dtype=np.float64)
 
-CAMERA_HEIGHT = 0.201   # metres — camera_link Z above ground
+CAMERA_HEIGHT = 0.1736   # metres — camera_link Z from_cube_surface
 
 # Undistortion maps precomputed once at startup
 _map1, _map2 = cv2.fisheye.initUndistortRectifyMap(
@@ -434,7 +434,7 @@ class CubeDetector(Node):
             t = TransformStamped()
             t.header.stamp = self.get_clock().now().to_msg()
             t.header.frame_id = 'camera_link'
-            t.child_frame_id = 'object_detected'
+            t.child_frame_id = 'cube_detected'
 
             # Position from command line
             t.transform.translation.x = X_m

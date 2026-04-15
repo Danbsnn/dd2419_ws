@@ -16,6 +16,8 @@ set(msg_files
   "msgs/ArmFeedback.msg"
   "msgs/DutyCycles.msg"
   "msgs/Encoders.msg"
+  "msgs/PoseStampedWithType.msg"
+
 )
 
 set(srv_files
