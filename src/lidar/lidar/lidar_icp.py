@@ -61,7 +61,8 @@ class LidarICP(Node):
         self.max_inlier_rmse = 0.2
 
         # How often to run icp
-        self.max_angular_speed = 0.1 # Faster and icp won't be performed
+        self.max_angular_speed = 0.05 # Faster and icp won't be performed
+        self.max_linear_speed = 0.1
         self.linear_run_icp = 0.3
         self.angular_run_icp = 0.1
 
@@ -98,7 +99,11 @@ class LidarICP(Node):
             self.get_logger().info("Waiting for map odom transform...", once=True)
             return
         
-        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed:
+        vx = self.odom.twist.twist.linear.x
+        vy = self.odom.twist.twist.linear.y
+        linear_speed = np.sqrt(vx**2 + vy**2)
+
+        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed or linear_speed > self.max_linear_speed:
             self.get_logger().info("Rotating too fast, skipping icp")
             return
 

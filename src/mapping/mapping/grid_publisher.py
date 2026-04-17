@@ -259,7 +259,7 @@ class GridPublisher(Node):
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 
-        # self.publish_markers()
+        self.publish_markers()
 
 
     def publish_markers(self):
