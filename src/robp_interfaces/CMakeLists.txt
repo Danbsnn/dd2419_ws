@@ -17,6 +17,8 @@ set(msg_files
   "msgs/DutyCycles.msg"
   "msgs/Encoders.msg"
   "msgs/PoseStampedWithType.msg"
+  "msgs/Object.msg"
+  "msgs/ObjectList.msg"
 
 )
 

@@ -189,10 +189,10 @@
   <joint name="camera_joint" type="fixed">
     <origin xyz="0 -0.042169 0.046483" rpy="0 0 0"/>
     <parent link="link4"/>
-    <child link="camera_link"/>
+    <child link="arm_camera_link"/>
   </joint>
 
-  <link name="camera_link">
+  <link name="arm_camera_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>

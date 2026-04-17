@@ -16,6 +16,9 @@ from geometry_msgs.msg import TransformStamped, PoseStamped, Pose
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
+from robp_interfaces.msg import Object, ObjectList
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
+
 
 class GridPublisher(Node):
     def __init__(self):
@@ -23,7 +26,12 @@ class GridPublisher(Node):
 
         self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
-        # Publishers
+        qos = QoSProfile(
+            depth=1,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE
+        )
+
         self.map_pub = self.create_publisher(
                                 OccupancyGrid, 
                                 '/map', 
@@ -38,6 +46,12 @@ class GridPublisher(Node):
                                 Pose, 
                                 '/initial_pose', 
                                 10)
+        
+        self.object_pub = self.create_publisher(
+            ObjectList,
+            '/object_list',
+            qos
+        )
 
         # Subscribers
         self.detection_sub = self.create_subscription(
@@ -245,6 +259,10 @@ class GridPublisher(Node):
         m.data = grid.flatten().tolist()
         self.map_pub.publish(m)
 
+        # self.publish_markers()
+
+
+    def publish_markers(self):
         ma = MarkerArray()
         
         for i, (ox, oy, _) in enumerate(self.object_coords):
@@ -255,8 +273,7 @@ class GridPublisher(Node):
             marker.header.stamp = self.get_clock().now().to_msg()
             marker.id = i
             marker.action = Marker.ADD
-            
-            # Position
+
             marker.pose.position.x = float(ox)
             marker.pose.position.y = float(oy)
             marker.pose.orientation.w = 1.0
@@ -299,15 +316,22 @@ class GridPublisher(Node):
 
             ma.markers.append(marker)
         
-        # Publish the array
-        self.marker_pub.publish(ma)  
+        self.marker_pub.publish(ma)
 
-    # Functions
     def publish_objects(self):
         static_transforms = []
+        
+        msg = ObjectList()
 
         for i, (ox, oy, angle) in enumerate(self.object_coords):
             if self.object_types[i] in ['O', 'B']:
+                obj = Object()
+                obj.id = str(i)
+                obj.type = self.object_types[i]
+                obj.pose.position.x = ox
+                obj.pose.position.y = oy
+                obj.pose.position.z = 0.0
+
                 t = TransformStamped()
                 t.header.stamp = self.get_clock().now().to_msg()
                 t.header.frame_id = 'map'
@@ -326,10 +350,17 @@ class GridPublisher(Node):
                 t.transform.rotation.y = q[1]
                 t.transform.rotation.z = q[2]
                 t.transform.rotation.w = q[3]
-        
+
+                obj.pose.orientation.x = q[0]
+                obj.pose.orientation.y = q[1]
+                obj.pose.orientation.z = q[2]
+                obj.pose.orientation.w = q[3]
+
+                msg.objects.append(obj)
                 static_transforms.append(t)
 
         self.tf_static_broadcaster.sendTransform(static_transforms)
+        self.object_pub.publish(msg)
 
     # First generation of workspace/map
     def generate_workspace(self):

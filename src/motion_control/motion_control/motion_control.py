@@ -5,7 +5,6 @@ from rclpy.node import Node
 
 from robp_interfaces.msg import DutyCycles, PoseStampedWithType
 from std_msgs.msg import Bool
-from geometry_msgs.msg import PoseStamped
 from tf_transformations import euler_from_quaternion
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer

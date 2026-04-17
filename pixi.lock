@@ -15228,10 +15228,10 @@ packages:
   variants:
     target_platform: osx-arm64
   depends:
-  - ros-jazzy-robp-interfaces
-  - ros-jazzy-rclpy
   - ros2-distro-mutex >=0.13,<0.14
   - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - ros-jazzy-robp-interfaces
+  - ros-jazzy-rclpy
   - libcxx >=22
   - python_abi 3.12.* *_cp312
   - numpy >=1.23,<3
@@ -15248,10 +15248,10 @@ packages:
     cxx_compiler: vs2022
     target_platform: win-64
   depends:
-  - ros-jazzy-robp-interfaces
-  - ros-jazzy-rclpy
   - ros2-distro-mutex >=0.13,<0.14
   - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - ros-jazzy-robp-interfaces
+  - ros-jazzy-rclpy
   - vc >=14.3,<15
   - vc14_runtime >=14.44.35208
   - ucrt >=10.0.20348.0
@@ -15268,10 +15268,10 @@ packages:
   variants:
     target_platform: linux-64
   depends:
-  - ros-jazzy-robp-interfaces
-  - ros-jazzy-rclpy
   - ros2-distro-mutex >=0.13,<0.14
   - ros2-distro-mutex >=0.13.0,<0.14.0a0
+  - ros-jazzy-robp-interfaces
+  - ros-jazzy-rclpy
   - libgcc >=15
   - libgcc >=15
   - libstdcxx >=15
