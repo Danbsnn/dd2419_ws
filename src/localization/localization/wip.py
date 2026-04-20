@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.duration import Duration
 
 from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
@@ -33,7 +34,6 @@ class LidarICP(Node):
         self.create_subscription(Pose, '/initial_pose', self.init_pose_callback, 10)
         self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
 
-        self.last_icp_pose = None
         self.last_update_pose = None
 
         self.T_map_to_odom = None
@@ -48,20 +48,17 @@ class LidarICP(Node):
         # Map param
         self.max_scans_in_vicinity = 10
         self.scan_vicinity_radius = 2
-        self.voxel_size = 0.05  # Downsampling
-
-        # Outlier filtering
-        self.nearby_points = 4
-        self.outlier_radius = 0.2
+        self.voxel_size = 0.03  # Downsampling
 
         # ICP param
-        self.icp_distance_threshold = 0.08
-        self.local_map_radius = 3.5  # How big area perform icp on and add to map
-        self.min_fitness = 0.4
+        self.icp_distance_threshold = 0.1
+        self.local_map_radius = 4.5  # How big area perform icp on and add to map
+        self.min_fitness = 0.6
         self.max_inlier_rmse = 0.2
 
         # How often to run icp
-        self.max_angular_speed = 0.25 # Faster and icp won't be performed
+        self.max_angular_speed = 0.0 # Faster and icp won't be performed
+        self.max_linear_speed = 0.0
         self.linear_run_icp = 0.3
         self.angular_run_icp = 0.1
 
@@ -98,14 +95,19 @@ class LidarICP(Node):
             self.get_logger().info("Waiting for map odom transform...", once=True)
             return
         
-        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed:
-            self.get_logger().info("Rotating too fast, skipping icp")
+        vx = self.odom.twist.twist.linear.x
+        vy = self.odom.twist.twist.linear.y
+        linear_speed = np.sqrt(vx**2 + vy**2)
+
+        if abs(self.odom.twist.twist.angular.z) > self.max_angular_speed or linear_speed > self.max_linear_speed:
+            # self.get_logger().info("Rotating too fast, skipping icp")
             return
 
         start_time = rclpy.time.Time.from_msg(msg.header.stamp)
-
         try:
             T_map_to_lidar_pred = self.get_internal_lidar_pose(start_time)
+            if T_map_to_lidar_pred is None:
+                return
         except Exception as e:
             self.get_logger().warn(f"Could not get internal lidar pose: {e}")
             return
@@ -127,7 +129,6 @@ class LidarICP(Node):
                 "pose": (x, y, yaw),
             }
             self.map.append(map_entry)
-            self.last_icp_pose = (x, y, yaw)
             self.last_update_pose = (x, y, yaw)
             self.map_idx += 1
             self.publish_map()
@@ -137,7 +138,7 @@ class LidarICP(Node):
         for m in self.map:
             map_pc += m["pc"]
 
-        map_pc = map_pc.voxel_down_sample(self.voxel_size)
+        # map_pc = map_pc.voxel_down_sample(self.voxel_size)
 
         # Create Local map for icp
         map_pts = np.asarray(map_pc.points)
@@ -147,6 +148,10 @@ class LidarICP(Node):
         local_map = o3d.geometry.PointCloud()
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
         local_map = local_map.voxel_down_sample(self.voxel_size)
+
+        if len(local_map.points) < 20:
+            self.get_logger().warn(f"Local map too small: {num_points} points")
+            return
 
         # Perform ICP using open3d
         icp_result = o3d.pipelines.registration.registration_icp(
@@ -162,13 +167,15 @@ class LidarICP(Node):
         
         if icp_result.fitness < self.min_fitness or icp_result.inlier_rmse > self.max_inlier_rmse:
             self.get_logger().warn(f"icp fitness low: {icp_result.fitness:.2f} or inlier rmse high: {icp_result.inlier_rmse:.2f}")
+            self.last_update_pose = (x, y, yaw)  # So it does not perform unnecessary icp
             return
 
         # This is just to avoid huge jumps
         if dtrans > 0.2 or abs(dyaw) > np.deg2rad(4.0):
             self.get_logger().warn("The icp wanted to jump way too far!!!")
             return
-                
+
+        self.get_logger().info("ICP successful")
         self.T_map_to_odom_internal = T_icp @ self.T_map_to_odom_internal
 
         
@@ -287,14 +294,34 @@ class LidarICP(Node):
         (_, _, yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
         return self.T_from_pose(x, y, yaw)
 
-    def get_internal_lidar_pose(self, stamp):
+    def get_internal_lidar_pose(self, time):
+        past_time = time - Duration(seconds=0.2)
+
         tf_odom_to_lidar = self.tf_buffer.lookup_transform(
             'odom',
             'lidar_link',
-            stamp,
+            time,
             rclpy.duration.Duration(seconds=0.1)
         )
+        tf_old = self.tf_buffer.lookup_transform(
+            'odom',
+            'lidar_link',
+            past_time,
+            rclpy.duration.Duration(seconds=0.1)
+        )
+
         T_odom_to_lidar = self.tf_to_T(tf_odom_to_lidar)
+        T_old = self.tf_to_T(tf_old)
+        x_now, y_now, yaw_now = self.pose_from_T(T_odom_to_lidar)
+        x_old, y_old, yaw_old = self.pose_from_T(T_old)
+        dist = np.hypot(x_now - x_old, y_now - y_old)
+        dyaw = self.wrap_to_pi(yaw_now - yaw_old)
+
+        max_stationary_dist = 0.01         
+        max_stationary_yaw = np.deg2rad(1)
+        if dist > max_stationary_dist or abs(dyaw) > max_stationary_yaw:
+            return None
+
         T_map_to_lidar = self.T_map_to_odom_internal @ T_odom_to_lidar
         return T_map_to_lidar
 
@@ -303,14 +330,20 @@ class LidarICP(Node):
         angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
         valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+
         valid_ranges = ranges[valid_mask]
         valid_angles = angles[valid_mask]
 
-        if len(valid_ranges) < 20:
-            return None
-
         lx = valid_ranges * np.cos(valid_angles)
         ly = valid_ranges * np.sin(valid_angles)
+
+        # body_mask = ~(
+        #     (lx > -0.25) & (lx < 0.25) &
+        #     (ly > -0.15) & (ly < 0.15)
+        # )
+
+        # lx = lx[body_mask]
+        # ly = ly[body_mask]
 
         gx = lx * np.cos(yaw) - ly * np.sin(yaw) + x
         gy = lx * np.sin(yaw) + ly * np.cos(yaw) + y
@@ -322,22 +355,66 @@ class LidarICP(Node):
         mask = (dx * dx + dy * dy) < self.local_map_radius ** 2
 
         cropped = scan_pts[mask]
-        if len(cropped) < 20:
-            return None
 
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(cropped)
 
         pcd = pcd.voxel_down_sample(self.voxel_size)
-        pcd, _ = pcd.remove_radius_outlier(
-            nb_points=self.nearby_points,
-            radius=self.outlier_radius
-        )
+        # pcd, _ = pcd.remove_radius_outlier(
+        #     nb_points=2,
+        #     radius=0.12
+        # )
+        pcd = self.two_band_radius_filter(pcd, sensor_x=x, sensor_y=y)
 
         if len(np.asarray(pcd.points)) < 20:
             return None
 
         return pcd
+
+    def two_band_radius_filter(self, pcd, sensor_x, sensor_y):
+        pts = np.asarray(pcd.points)
+        if len(pts) == 0:
+            return pcd
+
+        dx = pts[:, 0] - sensor_x
+        dy = pts[:, 1] - sensor_y
+        dists = np.hypot(dx, dy)
+
+        outlier_band_split = 2.5
+
+        near_mask = dists < outlier_band_split
+        far_mask = ~near_mask
+
+        near_idx = np.where(near_mask)[0]
+        far_idx = np.where(far_mask)[0]
+
+        filtered_parts = []
+
+        if len(near_idx) > 0:
+            near_pcd = pcd.select_by_index(near_idx.tolist())
+            near_pcd, _ = near_pcd.remove_radius_outlier(
+                nb_points=2,
+                radius=0.12
+            )
+            filtered_parts.append(near_pcd)
+
+        if len(far_idx) > 0:
+            far_pcd = pcd.select_by_index(far_idx.tolist())
+            far_pcd, _ = far_pcd.remove_radius_outlier(
+                nb_points=2,
+                radius=0.20
+            )
+            filtered_parts.append(far_pcd)
+
+        if not filtered_parts:
+            return o3d.geometry.PointCloud()
+
+        out = o3d.geometry.PointCloud()
+        for part in filtered_parts:
+            out += part
+
+        return out
+
 
     def prune_old_scans_in_vicinity(self, x, y):
         nearby = []
@@ -369,7 +446,6 @@ class LidarICP(Node):
             indices_to_remove.append(i)
             removed += 1
 
-        # Remove from back to front so indices stay valid
         for i in sorted(indices_to_remove, reverse=True):
             removed_entry = self.map.pop(i)
             self.get_logger().info(
