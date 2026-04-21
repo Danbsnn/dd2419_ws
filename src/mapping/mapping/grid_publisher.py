@@ -91,6 +91,22 @@ class GridPublisher(Node):
 
         self.publish_objects()
 
+    def sync_full_map_to_csv(self):
+        try:
+            new_path = "/home/snowwhite/dd2419_ws/src/mapping/map/test.csv"
+            self.get_logger().info(f"Saving updated map to: {new_path}")
+    
+            with open(new_path, 'w') as f:
+                f.write("type,x,y,angle\n") # Header
+                for i in range(len(self.object_types)):
+                    ox, oy, ang = self.object_coords[i]
+                    f.write(f"{self.object_types[i]},{ox*100:.2f},{oy*100:.2f},{ang:.2f}\n")
+                    
+            self.get_logger().info("Map sync successful.")
+            
+        except Exception as e:
+            self.get_logger().error(f"Error syncing map to new file: {e}")
+    
     def pc_callback(self, msg: PointCloud2):
         self.latest_pc_msg = msg
 
