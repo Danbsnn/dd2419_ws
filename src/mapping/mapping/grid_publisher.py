@@ -208,8 +208,7 @@ class GridPublisher(Node):
 
         new_x = transformed_pose.pose.position.x
         new_y = transformed_pose.pose.position.y
-        new_x = msg.pose.position.x
-        new_y = msg.pose.position.y
+        
         is_duplicate = False
         for i, (ox, oy, _) in enumerate(self.object_coords):
             distance = math.hypot(new_x - ox, new_y - oy)
