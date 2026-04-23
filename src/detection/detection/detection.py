@@ -3,7 +3,9 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from tf2_ros import StaticTransformBroadcaster
+import tf_transformations
 from visualization_msgs.msg import Marker
 
 import numpy as np
@@ -18,6 +20,25 @@ class ColorDetectionCameraFrame(Node):
         self.get_logger().info("Cube Detection Started (camera frame)")
 
         self.bridge = CvBridge()
+
+        # Static transform between camera frame and base_link
+
+        self.static_broadcaster = StaticTransformBroadcaster(self)
+
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'base_link'
+        t.child_frame_id = 'realsense_camera_color_optical_frame'
+
+        t.transform.translation.x = 0.0
+        t.transform.translation.y = 0.0
+        t.transform.translation.z = 0.0
+        t.transform.rotation.x = 0.0
+        t.transform.rotation.y = 0.0
+        t.transform.rotation.z = 0.0
+        t.transform.rotation.w = 1.0
+
+        self.static_broadcaster.sendTransform(t)
 
         # Subscribers
         self.create_subscription(

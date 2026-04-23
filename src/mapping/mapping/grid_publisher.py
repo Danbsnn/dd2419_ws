@@ -12,7 +12,7 @@ from tf_transformations import quaternion_from_euler
 
 from tf2_ros import StaticTransformBroadcaster, Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped, PoseStamped, Pose
-
+from tf2_geometry_msgs import do_transform_pose
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
@@ -193,9 +193,21 @@ class GridPublisher(Node):
 
 
     def detection_callback(self, msg: PoseStamped):
-        if msg.header.frame_id != 'map':
-            self.get_logger().warn(f"Detected object is in '{msg.header.frame_id}' frame. Please change to 'map'!")
+        try:
+            # Transform msg to map frame
+            transform = self.tf_buffer.lookup_transform(
+                'map',                      
+                msg.header.frame_id,        
+                rclpy.time.Time())
+
+            transformed_pose = do_transform_pose(msg, transform)
+
+        except Exception as e:
+            self.get_logger().warn(f"TF transform failed: {e}")
             return
+
+        new_x = transformed_pose.pose.position.x
+        new_y = transformed_pose.pose.position.y
         new_x = msg.pose.position.x
         new_y = msg.pose.position.y
         is_duplicate = False
