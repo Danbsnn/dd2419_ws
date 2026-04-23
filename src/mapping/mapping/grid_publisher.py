@@ -15,6 +15,7 @@ from geometry_msgs.msg import TransformStamped, PoseStamped, Pose
 from tf2_geometry_msgs import do_transform_pose
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from rclpy.duration import Duration
 
 from robp_interfaces.msg import Object, ObjectList
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
