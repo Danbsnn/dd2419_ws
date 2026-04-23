@@ -192,34 +192,34 @@ class GridPublisher(Node):
         )
 
 
-    def detection_callback(self, msg: PoseStamped):
-        try:
-            # Transform msg to map frame
-            transform = self.tf_buffer.lookup_transform(
-                'map',                      
-                msg.header.frame_id,        
-                rclpy.time.Time())
+    from rclpy.duration import Duration
 
-            transformed_pose = do_transform_pose(msg, transform)
+def detection_callback(self, msg: PoseStamped):
 
-        except Exception as e:
-            self.get_logger().warn(f"TF transform failed: {e}")
-            return
+    try:
+        transformed_pose = self.tf_buffer.transform(
+            msg,
+            'map',
+            timeout=Duration(seconds=0.5)
+        )
 
-        new_x = transformed_pose.pose.position.x
-        new_y = transformed_pose.pose.position.y
-        
-        is_duplicate = False
-        for i, (ox, oy, _) in enumerate(self.object_coords):
-            distance = math.hypot(new_x - ox, new_y - oy)
-            if distance < self.duplicate_threshold:
-                is_duplicate = True
-        if not is_duplicate:
-            self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
-            self.object_coords.append([new_x, new_y, 0])
-            self.object_types.append('O')
-            self.publish_objects()
-                
+    except Exception as e:
+        self.get_logger().warn(f"TF transform failed: {e}")
+        return
+
+    new_x = transformed_pose.pose.position.x
+    new_y = transformed_pose.pose.position.y
+    is_duplicate = False
+    for (ox, oy, _) in self.object_coords:
+        if math.hypot(new_x - ox, new_y - oy) < self.duplicate_threshold:
+            is_duplicate = True
+            break
+
+    if not is_duplicate:
+        self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
+        self.object_coords.append([new_x, new_y, 0])
+        self.object_types.append('O')
+        self.publish_objects()
 
     def box_callback(self, msg: PoseStamped):
         if msg.header.frame_id != 'map':
