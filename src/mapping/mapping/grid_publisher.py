@@ -192,34 +192,35 @@ class GridPublisher(Node):
         )
 
 
+    
+                
+
     from rclpy.duration import Duration
 
-def detection_callback(self, msg: PoseStamped):
+    def detection_callback(self, msg: PoseStamped):
+        try:
+            transformed_pose = self.tf_buffer.transform(
+                msg,
+                'map',
+                timeout=Duration(seconds=0.5)
+            )
+        except Exception as e:
+            self.get_logger().warn(f"TF transform failed: {e}")
+            return
 
-    try:
-        transformed_pose = self.tf_buffer.transform(
-            msg,
-            'map',
-            timeout=Duration(seconds=0.5)
-        )
-
-    except Exception as e:
-        self.get_logger().warn(f"TF transform failed: {e}")
-        return
-
-    new_x = transformed_pose.pose.position.x
-    new_y = transformed_pose.pose.position.y
-    is_duplicate = False
-    for (ox, oy, _) in self.object_coords:
-        if math.hypot(new_x - ox, new_y - oy) < self.duplicate_threshold:
-            is_duplicate = True
-            break
-
-    if not is_duplicate:
-        self.get_logger().info(f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
-        self.object_coords.append([new_x, new_y, 0])
-        self.object_types.append('O')
-        self.publish_objects()
+        new_x = transformed_pose.pose.position.x
+        new_y = transformed_pose.pose.position.y
+        is_duplicate = False
+        for (ox, oy, _) in self.object_coords:
+            if math.hypot(new_x - ox, new_y - oy) < self.duplicate_threshold:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            self.get_logger().info(
+                f"New object discovered at ({new_x:.2f}, {new_y:.2f})")
+            self.object_coords.append([new_x, new_y, 0])
+            self.object_types.append('O')
+            self.publish_objects()
 
     def box_callback(self, msg: PoseStamped):
         if msg.header.frame_id != 'map':
