@@ -28,7 +28,7 @@ class ColorDetectionCameraFrame(Node):
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'base_link'
-        t.child_frame_id = 'realsense_camera_color_optical_frame'
+        t.child_frame_id = 'realsense_camera_link'
 
         t.transform.translation.x = 0.0
         t.transform.translation.y = 0.0
