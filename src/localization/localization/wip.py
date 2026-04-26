@@ -47,8 +47,8 @@ class LidarICP(Node):
         # PARAMETERS:
         # Map param
         self.max_scans_in_vicinity = 10
-        self.scan_vicinity_radius = 2
-        self.voxel_size = 0.03  # Downsampling
+        self.scan_vicinity_radius = 2.5
+        self.voxel_size = 0.05  # Downsampling
 
         # ICP param
         self.icp_distance_threshold = 0.1
@@ -64,8 +64,8 @@ class LidarICP(Node):
 
         # Publishing map to odom param
         # Lower value equals smoother (although bigger delay)
-        self.alpha_xy = 0.05
-        self.alpha_yaw = 0.01
+        self.alpha_xy = 0.1
+        self.alpha_yaw = 0.02
 
         self.tf_timer = self.create_timer(0.1, self.publish_map_to_odom)
 
@@ -150,7 +150,7 @@ class LidarICP(Node):
         local_map = local_map.voxel_down_sample(self.voxel_size)
 
         if len(local_map.points) < 20:
-            self.get_logger().warn(f"Local map too small: {num_points} points")
+            self.get_logger().info("Skipping ICP due to too few points in local map")
             return
 
         # Perform ICP using open3d
@@ -295,7 +295,7 @@ class LidarICP(Node):
         return self.T_from_pose(x, y, yaw)
 
     def get_internal_lidar_pose(self, time):
-        past_time = time - Duration(seconds=0.2)
+        past_time = time - Duration(seconds=0.3)
 
         tf_odom_to_lidar = self.tf_buffer.lookup_transform(
             'odom',
@@ -329,7 +329,8 @@ class LidarICP(Node):
         ranges = np.array(msg.ranges)
         angles = msg.angle_min + np.arange(len(ranges)) * msg.angle_increment
 
-        valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+        # valid_mask = (ranges > msg.range_min) & (ranges < msg.range_max)
+        valid_mask = self.adaptive_scan_radius_mask(msg)
 
         valid_ranges = ranges[valid_mask]
         valid_angles = angles[valid_mask]
@@ -364,12 +365,92 @@ class LidarICP(Node):
         #     nb_points=2,
         #     radius=0.12
         # )
-        pcd = self.two_band_radius_filter(pcd, sensor_x=x, sensor_y=y)
+        # pcd = self.two_band_radius_filter(pcd, sensor_x=x, sensor_y=y)
 
         if len(np.asarray(pcd.points)) < 20:
             return None
 
         return pcd
+
+    def adaptive_scan_radius_mask(
+            self,
+            msg,
+            beta=5.0,
+            radius_min=0.08,
+            radius_max=0.55,
+            near_range=1.5,
+            min_neighbors=2,
+            max_window_beams=12,
+            ):
+        ranges = np.asarray(msg.ranges, dtype=np.float32)
+        n = len(ranges)
+
+        valid = np.isfinite(ranges)
+        valid &= ranges > msg.range_min
+        valid &= ranges < msg.range_max
+
+        angle_inc = abs(float(msg.angle_increment))
+        safe_ranges = np.where(valid, ranges, 0.0).astype(np.float32)
+
+        # Adaptive radius
+        radii = beta * angle_inc * safe_ranges  # beta is how many beams to check
+        radii = np.clip(radii, radius_min, radius_max).astype(np.float32)
+        radii_sq = radii * radii
+
+        # Convert each adaptive physical radius into a beam-index window
+        denom = safe_ranges * angle_inc
+
+        windows = np.ones(n, dtype=np.int32)
+        usable = valid & (denom > 1e-6)
+
+        windows[usable] = (
+            np.ceil(radii[usable] / denom[usable]).astype(np.int32) + 1
+        )
+
+        windows = np.minimum(windows, max_window_beams)
+
+        neighbor_counts = np.zeros(n, dtype=np.int32)
+
+        # Compare beams separated by offset k
+        for k in range(1, max_window_beams + 1):
+            left = slice(0, n - k)
+            right = slice(k, n)
+
+            r_i = safe_ranges[left]
+            r_j = safe_ranges[right]
+
+            valid_pair = valid[left] & valid[right]
+
+            dtheta = k * angle_inc
+            cos_dtheta = np.cos(dtheta)
+
+            # Polar distance between beam i and beam i+k
+            dist_sq = (
+                r_i * r_i
+                + r_j * r_j
+                - 2.0 * r_i * r_j * cos_dtheta
+            )
+
+            # Count point j as neighbor of point i
+            keep_for_left = (
+                valid_pair
+                & (k <= windows[left])
+                & (dist_sq <= radii_sq[left])
+            )
+
+            # Count point i as neighbor of point j
+            keep_for_right = (
+                valid_pair
+                & (k <= windows[right])
+                & (dist_sq <= radii_sq[right])
+            )
+
+            neighbor_counts[left] += keep_for_left.astype(np.int32)
+            neighbor_counts[right] += keep_for_right.astype(np.int32)
+
+        keep = valid & (neighbor_counts >= min_neighbors)
+
+        return keep
 
     def two_band_radius_filter(self, pcd, sensor_x, sensor_y):
         pts = np.asarray(pcd.points)
@@ -394,7 +475,7 @@ class LidarICP(Node):
             near_pcd = pcd.select_by_index(near_idx.tolist())
             near_pcd, _ = near_pcd.remove_radius_outlier(
                 nb_points=2,
-                radius=0.12
+                radius=0.15
             )
             filtered_parts.append(near_pcd)
 
@@ -402,7 +483,7 @@ class LidarICP(Node):
             far_pcd = pcd.select_by_index(far_idx.tolist())
             far_pcd, _ = far_pcd.remove_radius_outlier(
                 nb_points=2,
-                radius=0.20
+                radius=0.3
             )
             filtered_parts.append(far_pcd)
 
@@ -414,7 +495,6 @@ class LidarICP(Node):
             out += part
 
         return out
-
 
     def prune_old_scans_in_vicinity(self, x, y):
         nearby = []
