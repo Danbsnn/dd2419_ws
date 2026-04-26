@@ -1,242 +1,330 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
+import math
+import heapq
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
 
-from robp_interfaces.msg import DutyCycles, PoseStampedWithType
+from nav_msgs.msg import OccupancyGrid, Path
+from robp_interfaces.msg import PoseStampedWithType
 from std_msgs.msg import Bool
-from geometry_msgs.msg import Point, PoseStamped
+
+from tf2_ros import Buffer, TransformListener
 from tf_transformations import euler_from_quaternion
-from tf2_ros import TransformException
-from tf2_ros.buffer import Buffer
-from tf2_ros.transform_listener import TransformListener
-import tf2_geometry_msgs
 
-from nav_msgs.msg import Path
-import math
+from scipy.ndimage import maximum_filter
 
 
-class PathFollower(Node):
-
+class ObstacleAvoider(Node):
     def __init__(self):
-        super().__init__('path_follower')
-
-        self.motor_pub = self.create_publisher(DutyCycles, '/phidgets/motor/duty_cycles', 10)
-        self.reached_pub = self.create_publisher(Bool, '/target_reached', 10)
-
-
+        super().__init__('obs_avo')
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.path_sub = self.create_subscription(
-            Path, '/planned_path', self.path_callback, 10
+
+        self.map_sub = self.create_subscription(
+            OccupancyGrid, '/map', self.map_callback, 10
         )
 
-        self.L = 0.30         # wheel separation (m)
+        self.goal_sub = self.create_subscription(
+            PoseStamped, '/goal_pose', self.goal_callback, 10
+        )
 
-        # Controller gains
-        self.k1 = 0.6  # Velocity constant
-        self.k2 = 2.0  # Angle
-        self.k3 = 5  # Angle to velo constant
-        self.v_max = 0.5
-        self.omega_max = 0.6
+        self.reached_sub = self.create_subscription(
+            Bool, '/target_reached', self.reached_callback, 10
+        )
 
-        self.robot_frame = 'odom'
-        self.lookahead_distance = 0.20
-        self.goal_tolerance = 0.05
+        self.goal_pub = self.create_publisher(
+            PoseStampedWithType, '/goal', 10
+        )
 
-        self.x = None
-        self.y = None
-        self.theta = None  
-        
-        self.x_t = None
-        self.y_t = None
-        self.current_path = None
-        self.final_x = None
-        self.final_y = None
-        
-        # Control loop
-        self.timer = self.create_timer(0.1, self.control_loop)
+        self.path_pub = self.create_publisher(
+            Path, '/planned_path', 10
+        )
 
-        self.get_logger().info("Motion Control Running...")
+        self.map_msg = None
+        self.grid = None  # 2D numpy occupancy grid
 
-    def wrap_to_pi(self, angle):
-        return (angle + math.pi) % (2 * math.pi) - math.pi
+        self.occupied_threshold = 100
 
-    def transform_pose(self, input_pose, target_frame):
-        try:
-            if not self.tf_buffer.can_transform(target_frame, input_pose.header.frame_id, rclpy.time.Time()):
-                self.get_logger().warn(f'Transform from {input_pose.header.frame_id} to {target_frame} not ready')
-                return None
+        self.get_logger().info("Path Planner running...")
 
-            transform = self.tf_buffer.lookup_transform(
-                target_frame,
-                input_pose.header.frame_id,
-                rclpy.time.Time()
-            )
-            pose_transformed = tf2_geometry_msgs.do_transform_pose(input_pose.pose, transform)
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = target_frame
-            pose_stamped.header.stamp = self.get_clock().now().to_msg()
-            pose_stamped.pose = pose_transformed
-            return pose_stamped
-           
-        except TransformException as ex:
-            self.get_logger().error(f'Could not transform: {ex}')
-            return None
+    def map_callback(self, msg: OccupancyGrid):
+        self.map_msg = msg
+        self.grid = np.array(msg.data, dtype=np.int16).reshape(msg.info.height, msg.info.width)
 
-    def transform_path(self, input_path, target_frame):
-        transformed_path = Path()
-        transformed_path.header.frame_id = target_frame
-        transformed_path.header.stamp = self.get_clock().now().to_msg()
+        occupied = self.grid >= self.occupied_threshold  # Unknown is unoccupied
+        inflation_radius_m = 0.25
+        r = int(inflation_radius_m / msg.info.resolution)
+        inflated = maximum_filter(occupied.astype(np.uint8), size=2*r+1) > 0
+        self.free_mask = ~inflated
 
-        for pose_stamped in input_path.poses:
-            transformed_pose = self.transform_pose(pose_stamped, target_frame)
-            if transformed_pose is None:
-                return None
-            transformed_path.poses.append(transformed_pose)
+    def goal_callback(self, goal_msg: PoseStampedWithType):
+        if self.map_msg is None or self.grid is None:
+            self.get_logger().warn("Waiting for map.")
+            return
 
-        return transformed_path
+        robot_pose = self.get_robot_pose()
+        if robot_pose is None:
+            return
+
+        start_x, start_y, _ = robot_pose
+        goal_x = goal_msg.pose.pose.position.x
+        goal_y = goal_msg.pose.pose.position.y
+        self.goal_type = goal_msg.type
+
+        if self.goal_type in ["B"]:
+            q = goal_msg.pose.pose.orientation
+            (_, _, goal_yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+            offset = 0.15
+            # fx = math.cos(goal_yaw)
+            # fy = math.sin(goal_yaw) 
+            lx = -math.sin(goal_yaw)
+            ly = math.cos(goal_yaw)
+
+            # Candidates around the box
+            candidate_positions = [
+                #(goal_x + offset * fx, goal_y + offset * fy),  # front
+                #(goal_x - offset * fx, goal_y - offset * fy),  # back
+                (goal_x + offset * lx, goal_y + offset * ly),  # left
+                (goal_x - offset * lx, goal_y - offset * ly),  # right
+            ]
+            for candidate in candidate_positions:
+                if self.is_free_cell(self.world_to_grid(candidate[0], candidate[1])):
+                    goal_x, goal_y = candidate
+                    break
+
+        start = self.world_to_grid(start_x, start_y)
+        goal = self.world_to_grid(goal_x, goal_y)
+
+        if not self.is_free_cell(start):
+            self.get_logger().warn("Robot start cell is occupied.")
+            return
+
+
+        if self.goal_type not in ["B", "O"]:
+            if not self.is_free_cell(goal):
+                self.get_logger().warn("Goal cell is occupied.")
+                return
+
+        path_cells = self.theta_star(start, goal)
+        if path_cells is None:
+            self.get_logger().warn("No path found.")
+            return
+
+        self.publish_path_from_cells(path_cells)
+
+    def reached_callback(self, msg: Bool):
+        self.get_logger().info(f"Target reached!")
 
     def get_robot_pose(self):
         try:
             transform = self.tf_buffer.lookup_transform(
-                self.robot_frame,
+                'map',
                 'base_link',
                 rclpy.time.Time()
             )
 
-            self.x = transform.transform.translation.x
-            self.y = transform.transform.translation.y
-            z = transform.transform.translation.z
+            x = transform.transform.translation.x
+            y = transform.transform.translation.y
 
             q = transform.transform.rotation
             _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
-            self.theta = yaw
-            
+
+            return (x, y, yaw)
+
         except Exception as e:
             self.get_logger().warn(f"TF transform failed: {e}")
             return None
 
-    def pick_lookahead_point(self):
-        if self.current_path is None or len(self.current_path.poses) == 0:
-            return None
+    def reached_planner_goal(self, current, goal, goal_radius_cells):
+        if goal_radius_cells <= 0:
+            return current == goal
 
-        for i, pose in enumerate(self.current_path.poses):
-            px = pose.pose.position.x
-            py = pose.pose.position.y
-            d = math.hypot(px - self.x, py - self.y)
+        dx = current[0] - goal[0]
+        dy = current[1] - goal[1]
 
-            if d >= self.lookahead_distance:
-                self.current_path.poses = self.current_path.poses[i:]
-                return pose
-                
-        self.current_path.poses = [self.current_path.poses[-1]]
-        return self.current_path.poses[-1]
+        return math.hypot(dx, dy) <= goal_radius_cells
 
-    def path_callback(self, msg):
-        if len(msg.poses) == 0:
-            self.get_logger().warn("Received empty path.")
-            self.current_path = None
-            self.final_x = None
-            self.final_y = None
-            return
+    def world_to_grid(self, x, y):
+        info = self.map_msg.info
+        gx = int((x - info.origin.position.x) / info.resolution)
+        gy = int((y - info.origin.position.y) / info.resolution)
+        return (gx, gy)
 
-        if msg.header.frame_id != self.robot_frame:
-            self.get_logger().info(
-                f"Transforming path from {msg.header.frame_id} to {self.robot_frame}..."
-            )
-            msg = self.transform_path(msg, self.robot_frame)
-            if msg is None:
-                self.get_logger().warn("Failed to transform path.")
-                return
+    def grid_to_world(self, gx, gy):
+        info = self.map_msg.info
+        x = info.origin.position.x + (gx + 0.5) * info.resolution
+        y = info.origin.position.y + (gy + 0.5) * info.resolution
+        return (x, y)
 
-        final_target = msg.poses[-1]
-        self.final_x = final_target.pose.position.x
-        self.final_y = final_target.pose.position.y       
+    def is_free_cell(self, cell):
+        gx, gy = cell
 
-        self.current_path = msg
+        if gx < 0 or gy < 0 or gx >= self.map_msg.info.width or gy >= self.map_msg.info.height:
+            return False
 
-    def control_loop(self):
-        if self.final_x is None or self.final_y is None:
-            return
+        return self.free_mask[gy, gx]
 
-        if self.current_path is None:
-            return
+    def neighbors8(self, cell):
+        x, y = cell
 
-        self.get_robot_pose()
-        target_pose = self.pick_lookahead_point()
-        if target_pose is None:
-            return
+        for dx, dy in [
+            (-1, -1), (0, -1), (1, -1),
+            (-1,  0),          (1,  0),
+            (-1,  1), (0,  1), (1,  1),
+        ]:
+            nx, ny = x + dx, y + dy
 
-        self.x_t = target_pose.pose.position.x
-        self.y_t = target_pose.pose.position.y
-        d_final = math.hypot(self.final_x - self.x, self.final_y - self.y)
-        
-        msg = DutyCycles()
-        
-        if d_final < self.goal_tolerance:
-            msg.duty_cycle_left = 0.0
-            msg.duty_cycle_right = 0.0
-            self.motor_pub.publish(msg)
+            if 0 <= nx < self.map_msg.info.width and 0 <= ny < self.map_msg.info.height:
+                if self.free_mask[ny, nx]:
+                    yield (nx, ny)
 
-            reached_msg = Bool()
-            reached_msg.data = True
-            self.reached_pub.publish(reached_msg)
+    def heuristic(self, a, b):
+        return math.hypot(b[0] - a[0], b[1] - a[1])
 
-            self.get_logger().info("Final path goal reached!")
+    def cost(self, a, b):
+        return math.hypot(b[0] - a[0], b[1] - a[1])
 
-            self.current_path = None
-            self.final_x = None
-            self.final_y = None
-            return
+    def line_of_sight(self, a, b):
+        x0, y0 = a
+        x1, y1 = b
 
-        # Calculate errors
-        dx = self.x_t - self.x
-        dy = self.y_t - self.y
-        d = math.hypot(dx, dy)
-        theta_d = math.atan2(dy, dx)
-        alpha = self.wrap_to_pi(theta_d - self.theta)
+        n = max(abs(x1 - x0), abs(y1 - y0)) + 1
+        xs = np.rint(np.linspace(x0, x1, n)).astype(np.int32)
+        ys = np.rint(np.linspace(y0, y1, n)).astype(np.int32)
 
-        # Phase 1: Rotate to face the target
-        if alpha < 0:
-            sign_alpha = -1
+        if np.any(xs < 0) or np.any(xs >= self.map_msg.info.width):
+            return False
+        if np.any(ys < 0) or np.any(ys >= self.map_msg.info.height):
+            return False
+
+        return np.all(self.free_mask[ys, xs])
+
+    def theta_star(self, start, goal):
+        open_heap = []
+        heapq.heappush(open_heap, (self.heuristic(start, goal), start))
+
+        g = {start: 0.0}
+        parent = {start: start}
+        closed = set()
+
+        if self.goal_type == "O":
+            goal_radius_m = 0.15
+            goal_radius_cells = int(goal_radius_m / self.map_msg.info.resolution)
         else:
-            sign_alpha = 1
-       
-        omega = sign_alpha * min(self.k2 * abs(alpha), self.omega_max)
+            goal_radius_cells = 0
 
-        v_r = omega * self.L / 2.0
-        v_l = -omega * self.L / 2.0
+        while open_heap:
+            _, current = heapq.heappop(open_heap)
 
-        # Phase 2: Drive straight to target
-        gradual_const = math.exp(-self.k3*abs(alpha)**2)
-        # self.get_logger().info(f"Transition speed constant: {gradual_const}")
-        v = min(self.k1 * d, self.v_max)
-       
-        if d > 0.05 and v < 0.1:
-            self.get_logger().info("Robot is moving too slow, so a min velocity is applied.")
-            v = max(v, 0.1)
+            if current in closed:
+                continue
+            
+            if self.reached_planner_goal(current, goal, goal_radius_cells):
+                return self.reconstruct_path(parent, current)
 
-        v *= gradual_const
-        # self.get_logger().info(f"Current Linear Speed: {v}")
+            closed.add(current)
 
-        v_r += v
-        v_l += v
+            for nbr in self.neighbors8(current):
+                if nbr in closed:
+                    continue
 
-        msg.duty_cycle_right = v_r
-        msg.duty_cycle_left = v_l
+                if nbr not in g:
+                    g[nbr] = float('inf')
+                    parent[nbr] = None
 
-        # self.get_logger().info(f"Moving with speed v_l = {v_l} and v_r = {v_r}")
-        self.motor_pub.publish(msg)
+                p = parent[current]
+
+                # Theta*: try connecting through current's parent
+                if p is not None and self.line_of_sight(p, nbr):
+                    new_g = g[p] + self.cost(p, nbr)
+                    new_parent = p
+                else:
+                    new_g = g[current] + self.cost(current, nbr)
+                    new_parent = current
+
+                if new_g < g[nbr]:
+                    g[nbr] = new_g
+                    parent[nbr] = new_parent
+                    f = new_g + self.heuristic(nbr, goal)
+                    heapq.heappush(open_heap, (f, nbr))
+
+        return None
+
+    def reconstruct_path(self, parent, goal):
+        path = [goal]
+        cur = goal
+
+        while parent[cur] != cur:
+            cur = parent[cur]
+            path.append(cur)
+
+        path.reverse()
+        return path
+
+    def sparsify_path(self, path):
+        result = []
+
+        prev_dir = (
+            path[1][0] - path[0][0],
+            path[1][1] - path[0][1]
+        )
+
+        for i in range(1, len(path) - 1):
+            new_dir = (
+                path[i + 1][0] - path[i][0],
+                path[i + 1][1] - path[i][1]
+            )
+
+            if new_dir != prev_dir:
+                result.append(path[i])
+
+            prev_dir = new_dir
+
+        result.append(path[-1])
+
+        return result
+
+    def cell_to_pose(self, cell):
+        x, y = self.grid_to_world(*cell)
+
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = float(x)
+        pose.pose.position.y = float(y)
+        pose.pose.position.z = 0.0
+        return pose
+
+    def publish_path_from_cells(self, path_cells):
+        path = Path()
+        path.header.frame_id = 'map'
+        path.header.stamp = self.get_clock().now().to_msg()
+
+        for cell in path_cells:
+            x, y = self.grid_to_world(*cell)
+            pose = PoseStamped()
+            pose.header.frame_id = 'map'
+            pose.header.stamp = path.header.stamp
+            pose.pose.position.x = float(x)
+            pose.pose.position.y = float(y)
+            pose.pose.position.z = 0.0
+            path.poses.append(pose)
+
+        self.path_pub.publish(path)
+
 
 def main():
     rclpy.init()
-    node = PathFollower()
+    node = ObstacleAvoider()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
