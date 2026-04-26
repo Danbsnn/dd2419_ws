@@ -14,12 +14,13 @@ from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformListener
 from tf_transformations import euler_from_quaternion
 
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import distance_transform_edt
+from geometry_msgs.msg import PoseStamped
 
 
-class ObstacleAvoider(Node):
+class PathPlanner(Node):
     def __init__(self):
-        super().__init__('obs_avo')
+        super().__init__('path_planner')
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -29,25 +30,27 @@ class ObstacleAvoider(Node):
         )
 
         self.goal_sub = self.create_subscription(
-            PoseStamped, '/goal_pose', self.goal_callback, 10
+            PoseStampedWithType, '/goal_pose', self.goal_callback, 10
         )
 
         self.reached_sub = self.create_subscription(
             Bool, '/target_reached', self.reached_callback, 10
         )
 
-        self.goal_pub = self.create_publisher(
-            PoseStampedWithType, '/goal', 10
-        )
-
         self.path_pub = self.create_publisher(
             Path, '/planned_path', 10
         )
 
+        self.goal_type = None
         self.map_msg = None
+        self.free_mask = None
         self.grid = None  # 2D numpy occupancy grid
+        self.cost_map = None
+        self.cost_map_inflation = 0.6
 
         self.occupied_threshold = 100
+
+        self.obst_cost = 1.5
 
         self.get_logger().info("Path Planner running...")
 
@@ -56,10 +59,17 @@ class ObstacleAvoider(Node):
         self.grid = np.array(msg.data, dtype=np.int16).reshape(msg.info.height, msg.info.width)
 
         occupied = self.grid >= self.occupied_threshold  # Unknown is unoccupied
-        inflation_radius_m = 0.25
-        r = int(inflation_radius_m / msg.info.resolution)
-        inflated = maximum_filter(occupied.astype(np.uint8), size=2*r+1) > 0
-        self.free_mask = ~inflated
+        self.free_mask = ~occupied
+
+        # Distance from every free cell to the nearest occupied cell, in meters.
+        dist_m = distance_transform_edt(self.free_mask) * msg.info.resolution
+        self.cost_map = np.zeros_like(dist_m, dtype=np.float32)
+        near_obstacle = (self.free_mask) & (dist_m < self.cost_map_inflation)
+        self.cost_map[near_obstacle] = (
+                (self.cost_map_inflation - dist_m[near_obstacle])
+                / self.cost_map_inflation
+            ) ** 2
+        self.cost_map[occupied] = np.inf
 
     def goal_callback(self, goal_msg: PoseStampedWithType):
         if self.map_msg is None or self.grid is None:
@@ -75,11 +85,23 @@ class ObstacleAvoider(Node):
         goal_y = goal_msg.pose.pose.position.y
         self.goal_type = goal_msg.type
 
+        start = self.world_to_grid(start_x, start_y)
+        goal = self.world_to_grid(goal_x, goal_y)
+
+        if not self.is_free_cell(start):
+                    self.get_logger().warn("Robot start cell is occupied.")
+                    return
+
+        if self.goal_type not in ["B", "O"]:
+            if not self.is_free_cell(goal):
+                self.get_logger().warn("Goal cell is occupied.")
+                return
+
         if self.goal_type in ["B"]:
             q = goal_msg.pose.pose.orientation
             (_, _, goal_yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-            offset = 0.15
+            offset = 0.16
             # fx = math.cos(goal_yaw)
             # fy = math.sin(goal_yaw) 
             lx = -math.sin(goal_yaw)
@@ -97,20 +119,7 @@ class ObstacleAvoider(Node):
                     goal_x, goal_y = candidate
                     break
 
-        start = self.world_to_grid(start_x, start_y)
-        goal = self.world_to_grid(goal_x, goal_y)
-
-        if not self.is_free_cell(start):
-            self.get_logger().warn("Robot start cell is occupied.")
-            return
-
-
-        if self.goal_type not in ["B", "O"]:
-            if not self.is_free_cell(goal):
-                self.get_logger().warn("Goal cell is occupied.")
-                return
-
-        path_cells = self.theta_star(start, goal)
+        path_cells = self.a_star(start, goal)
         if path_cells is None:
             self.get_logger().warn("No path found.")
             return
@@ -161,13 +170,18 @@ class ObstacleAvoider(Node):
         y = info.origin.position.y + (gy + 0.5) * info.resolution
         return (x, y)
 
-    def is_free_cell(self, cell):
+    def in_bounds(self, cell):
         gx, gy = cell
+        return (
+            0 <= gx < self.map_msg.info.width
+            and 0 <= gy < self.map_msg.info.height
+        )
 
-        if gx < 0 or gy < 0 or gx >= self.map_msg.info.width or gy >= self.map_msg.info.height:
+    def is_free_cell(self, cell):
+        if not self.in_bounds(cell):
             return False
-
-        return self.free_mask[gy, gx]
+        gx, gy = cell
+        return bool(self.free_mask[gy, gx])
 
     def neighbors8(self, cell):
         x, y = cell
@@ -177,11 +191,9 @@ class ObstacleAvoider(Node):
             (-1,  0),          (1,  0),
             (-1,  1), (0,  1), (1,  1),
         ]:
-            nx, ny = x + dx, y + dy
-
-            if 0 <= nx < self.map_msg.info.width and 0 <= ny < self.map_msg.info.height:
-                if self.free_mask[ny, nx]:
-                    yield (nx, ny)
+            nbr = (x + dx, y + dy)
+            if self.is_free_cell(nbr):
+                yield nbr
 
     def heuristic(self, a, b):
         return math.hypot(b[0] - a[0], b[1] - a[1])
@@ -189,22 +201,41 @@ class ObstacleAvoider(Node):
     def cost(self, a, b):
         return math.hypot(b[0] - a[0], b[1] - a[1])
 
-    def line_of_sight(self, a, b):
+    def line_indices(self, a, b):
         x0, y0 = a
         x1, y1 = b
 
         n = max(abs(x1 - x0), abs(y1 - y0)) + 1
         xs = np.rint(np.linspace(x0, x1, n)).astype(np.int32)
         ys = np.rint(np.linspace(y0, y1, n)).astype(np.int32)
+        return xs, ys
+
+    def line_of_sight(self, a, b):
+        xs, ys = self.line_indices(a, b)
 
         if np.any(xs < 0) or np.any(xs >= self.map_msg.info.width):
             return False
         if np.any(ys < 0) or np.any(ys >= self.map_msg.info.height):
             return False
 
-        return np.all(self.free_mask[ys, xs])
+        return bool(np.all(self.free_mask[ys, xs]))
 
-    def theta_star(self, start, goal):
+    def path_cost(self, path):
+        if path is None or len(path) < 2:
+            return 0.0
+        return sum(self.step_cost(path[i], path[i + 1]) for i in range(len(path) - 1))
+
+    def step_cost(self, a, b):
+        ax, ay = a
+        bx, by = b
+
+        base = math.hypot(bx - ax, by - ay)
+        cell_cost = 0.5 * (
+            float(self.cost_map[ay, ax]) + float(self.cost_map[by, bx])
+        )
+        return base * (1.0 + self.obst_cost * cell_cost)
+
+    def a_star(self, start, goal):
         open_heap = []
         heapq.heappush(open_heap, (self.heuristic(start, goal), start))
 
@@ -213,7 +244,7 @@ class ObstacleAvoider(Node):
         closed = set()
 
         if self.goal_type == "O":
-            goal_radius_m = 0.15
+            goal_radius_m = 0.16
             goal_radius_cells = int(goal_radius_m / self.map_msg.info.resolution)
         else:
             goal_radius_cells = 0
@@ -223,7 +254,7 @@ class ObstacleAvoider(Node):
 
             if current in closed:
                 continue
-            
+
             if self.reached_planner_goal(current, goal, goal_radius_cells):
                 return self.reconstruct_path(parent, current)
 
@@ -233,23 +264,11 @@ class ObstacleAvoider(Node):
                 if nbr in closed:
                     continue
 
-                if nbr not in g:
-                    g[nbr] = float('inf')
-                    parent[nbr] = None
+                new_g = g[current] + self.step_cost(current, nbr)
 
-                p = parent[current]
-
-                # Theta*: try connecting through current's parent
-                if p is not None and self.line_of_sight(p, nbr):
-                    new_g = g[p] + self.cost(p, nbr)
-                    new_parent = p
-                else:
-                    new_g = g[current] + self.cost(current, nbr)
-                    new_parent = current
-
-                if new_g < g[nbr]:
+                if new_g < g.get(nbr, float('inf')):
                     g[nbr] = new_g
-                    parent[nbr] = new_parent
+                    parent[nbr] = current
                     f = new_g + self.heuristic(nbr, goal)
                     heapq.heappush(open_heap, (f, nbr))
 
@@ -320,7 +339,7 @@ class ObstacleAvoider(Node):
 
 def main():
     rclpy.init()
-    node = ObstacleAvoider()
+    node = PathPlanner()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
