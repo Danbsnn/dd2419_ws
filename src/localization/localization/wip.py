@@ -149,8 +149,17 @@ class LidarICP(Node):
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
         local_map = local_map.voxel_down_sample(self.voxel_size)
 
-        if len(local_map.points) < 20:
+        if len(local_map.points) < 100:
             self.get_logger().info("Skipping ICP due to too few points in local map")
+            map_entry = {
+                "id": self.map_idx,
+                "pc": current_pcd,
+                "pose": (x, y, yaw),
+            }
+            self.map.append(map_entry)
+            self.last_update_pose = (x, y, yaw)
+            self.map_idx += 1
+            self.publish_map()
             return
 
         # Perform ICP using open3d
@@ -295,7 +304,7 @@ class LidarICP(Node):
         return self.T_from_pose(x, y, yaw)
 
     def get_internal_lidar_pose(self, time):
-        past_time = time - Duration(seconds=0.3)
+        past_time = time - Duration(seconds=0.5)
 
         tf_odom_to_lidar = self.tf_buffer.lookup_transform(
             'odom',
