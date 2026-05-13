@@ -7,7 +7,7 @@
   <node pkg="odometry" exec="odometry" output="screen"/>
 
   <!-- ==================== ROBOT STATE PUBLISHER ==================== -->
-  <let name="urdf_path" value="$(find-pkg-share snow_description)/urdf/snow.urdf"/>
+  <let name="urdf_path" value="$(find-pkg-share snow_description)/urdf/snow.urdf.xacro"/>
   <node pkg="robot_state_publisher" exec="robot_state_publisher">
     <param name="robot_description" value="$(command 'cat $(var urdf_path)')"/>
   </node>

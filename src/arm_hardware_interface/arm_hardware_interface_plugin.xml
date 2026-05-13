@@ -1,0 +1,11 @@
+<library path="arm_hardware_interface">
+  <class
+    name="arm_hardware_interface/ArmHardwareInterface"
+    type="arm_hardware_interface::ArmHardwareInterface"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface plugin that communicates with the physical arm
+      via /arm/control (ArmControl) and /arm/feedback (ArmFeedback).
+    </description>
+  </class>
+</library>

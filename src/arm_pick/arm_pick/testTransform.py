@@ -17,7 +17,7 @@ class TestTransformPublisher(Node):
             # Get cube position relative to base_link
             t = self._tf_buffer.lookup_transform(
                 'base_link',
-                'cube_detected',
+                'blue_cube',
                 rclpy.time.Time()
             )
         except TransformException:
@@ -37,6 +37,7 @@ def main():
     rclpy.init()
     node = TestTransformPublisher()
     rclpy.spin(node)
+    
     node.destroy_node()
     rclpy.shutdown()
 

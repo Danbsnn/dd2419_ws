@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<robot name="snow_minimal">
+
+  <link name="base_link"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="mobile_base_link"/>
+    <origin xyz="0 0 0.014" rpy="0 0 0"/>
+  </joint>
+
+  <link name="mobile_base_link"/>
+
+  <joint name="arm_base_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="arm_base_link"/>
+    <origin xyz="0 -0.05335 0.095" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <link name="arm_base_link"/>
+
+  <joint name="joint1" type="revolute">
+    <origin xyz="0 0 0.028505"/>
+    <parent link="arm_base_link"/>
+    <child link="link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.09" upper="2.09"/>
+  </joint>
+  <link name="link1"/>
+
+  <joint name="joint2" type="revolute">
+    <origin xyz="0 0 0.0361"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.57" upper="1.57"/>
+  </joint>
+  <link name="link2"/>
+
+  <joint name="joint3" type="revolute">
+    <origin xyz="0 0 0.10048"/>
+    <parent link="link2"/>
+    <child link="link3"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-2.09" upper="2.09"/>
+  </joint>
+  <link name="link3"/>
+
+  <joint name="joint4" type="revolute">
+    <origin xyz="0 0 0.094714"/>
+    <parent link="link3"/>
+    <child link="link4"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-2.09" upper="2.09"/>
+  </joint>
+  <link name="link4"/>
+
+  <joint name="joint5" type="revolute">
+    <origin xyz="0 0 0.05071"/>
+    <parent link="link4"/>
+    <child link="link5"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.09" upper="2.09"/>
+  </joint>
+  <link name="link5"/>
+
+  <joint name="grasping_frame_joint" type="fixed">
+    <parent link="link5"/>
+    <child link="grasping_frame"/>
+    <origin xyz="0 0 0.1126"/>
+  </joint>
+
+  <link name="grasping_frame"/>
+
+</robot>

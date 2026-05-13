@@ -99,7 +99,7 @@ class MotionControl(Node):
         if self.type == "O" or self.type == "B":
            d -= 0.1
         
-        if d < 0.05:
+        if d < 0.15:
             msg.duty_cycle_left = 0.0
             msg.duty_cycle_right = 0.0
             self.motor_pub.publish(msg)

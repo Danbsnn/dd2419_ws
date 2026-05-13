@@ -52,19 +52,19 @@ class LidarICP(Node):
 
         # ICP param
         self.icp_distance_threshold = 0.1
-        self.local_map_radius = 6  # How big area perform icp on and add to map
+        self.local_map_radius = 4.5  # How big area perform icp on and add to map
         self.min_fitness = 0.6
         self.max_inlier_rmse = 0.2
 
         # How often to run icp
-        self.max_angular_speed = 0.05 # Faster and icp won't be performed
-        self.max_linear_speed = 0.05
+        self.max_angular_speed = 0.0 # Faster and icp won't be performed
+        self.max_linear_speed = 0.0
         self.linear_run_icp = 0.3
         self.angular_run_icp = 0.1
 
         # Publishing map to odom param
         # Lower value equals smoother (although bigger delay)
-        self.alpha_xy = 0.12
+        self.alpha_xy = 0.15
         self.alpha_yaw = 0.02
 
         self.tf_timer = self.create_timer(0.1, self.publish_map_to_odom)
@@ -149,8 +149,17 @@ class LidarICP(Node):
         local_map.points = o3d.utility.Vector3dVector(map_pts[mask])
         local_map = local_map.voxel_down_sample(self.voxel_size)
 
-        if len(local_map.points) < 20:
+        if len(local_map.points) < 100:
             self.get_logger().info("Skipping ICP due to too few points in local map")
+            map_entry = {
+                "id": self.map_idx,
+                "pc": current_pcd,
+                "pose": (x, y, yaw),
+            }
+            self.map.append(map_entry)
+            self.last_update_pose = (x, y, yaw)
+            self.map_idx += 1
+            self.publish_map()
             return
 
         # Perform ICP using open3d
@@ -295,7 +304,7 @@ class LidarICP(Node):
         return self.T_from_pose(x, y, yaw)
 
     def get_internal_lidar_pose(self, time):
-        past_time = time - Duration(seconds=0.1)
+        past_time = time - Duration(seconds=0.5)
 
         tf_odom_to_lidar = self.tf_buffer.lookup_transform(
             'odom',
@@ -375,9 +384,10 @@ class LidarICP(Node):
     def adaptive_scan_radius_mask(
             self,
             msg,
-            beta=7.0,
+            beta=5.0,
             radius_min=0.08,
             radius_max=0.55,
+            near_range=1.5,
             min_neighbors=2,
             max_window_beams=12,
             ):

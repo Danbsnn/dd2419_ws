@@ -1,0 +1,584 @@
+<?xml version="1.0"?>
+<robot name="snow" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Import control_xacro -->
+  <xacro:include filename="snow.ros2_control.xacro" />
+
+  <!-- ==================== MATERIALS ==================== -->
+  <material name="blue">
+    <color rgba="0 0 1 1"/>
+  </material>
+  <material name="grey">
+    <color rgba="0.5 0.5 0.5 1"/>
+  </material>
+
+  <!-- ==================== MOBILE BASE ==================== -->
+  <link name="base_link"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="mobile_base_link"/>
+    <origin xyz="0 0 0.014" rpy="0 0 0"/>
+  </joint>
+
+  <link name="mobile_base_link">
+    <visual>
+      <geometry>
+        <box size="0.375 0.2667 0.07"/>
+      </geometry>
+      <origin xyz="-0.0925 0 0.035" rpy="0 0 0"/>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.375 0.2667 0.07"/>
+      </geometry>
+      <origin xyz="-0.0925 0 0.035" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ==================== WHEELS ==================== -->
+  <joint name="base_right_wheel_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="right_wheel_link"/>
+    <origin xyz="0 -0.14985 0.035" rpy="0 0 0"/>
+    
+  </joint>
+
+  <link name="right_wheel_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.0203" radius="0.049"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.0203" radius="0.049"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+    </collision>
+  </link>
+
+  <joint name="base_left_wheel_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="left_wheel_link"/>
+    <origin xyz="0 0.14985 0.035" rpy="0 0 0"/>
+    
+  </joint>
+
+  <link name="left_wheel_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.0203" radius="0.049"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.0203" radius="0.049"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ==================== CASTER WHEELS ==================== -->
+  <joint name="base_caster_left_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="caster_left_link"/>
+    <origin xyz="-0.28 0.13335 -0.007" rpy="0 0 0"/>
+  </joint>
+
+  <link name="caster_left_link">
+    <visual>
+      <geometry>
+        <sphere radius="0.007"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.007"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <joint name="base_caster_right_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="caster_right_link"/>
+    <origin xyz="-0.28 -0.13335 -0.007" rpy="0 0 0"/>
+  </joint>
+
+  <link name="caster_right_link">
+    <visual>
+      <geometry>
+        <sphere radius="0.007"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.007"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ==================== ARM ATTACHMENT ==================== -->
+  <joint name="arm_base_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="arm_base_link"/>
+    <origin xyz="0 -0.05335 0.095" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <!-- ==================== ARM ==================== -->
+  <link name="arm_base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/base_link.STL" scale="100 100 100"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/base_link.STL" scale="100 100 100"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint1" type="revolute">
+    <origin xyz="0 0 0.028505" rpy="0 0 0"/>
+    <parent link="arm_base_link"/>
+    <child link="link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.09" upper="2.09" effort="1000" velocity="10"/>
+  </joint>
+
+  <link name="link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link1.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link1.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint2" type="revolute">
+    <origin xyz="0 0 0.0361" rpy="0 0 0"/>
+    <parent link="link1"/>
+    <child link="link2"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-1.57" upper="1.57" effort="1000" velocity="10"/>
+  </joint>
+
+  <link name="link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link2.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link2.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint3" type="revolute">
+    <origin xyz="0 0 0.10048" rpy="0 0 0"/>
+    <parent link="link2"/>
+    <child link="link3"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-2.09" upper="2.09" effort="1000" velocity="10"/>
+  </joint>
+
+  <link name="link3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link3.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link3.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint4" type="revolute">
+    <origin xyz="0 0 0.094714" rpy="0 0 0"/>
+    <parent link="link3"/>
+    <child link="link4"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-2.09" upper="2.09" effort="1000" velocity="10"/>
+  </joint>
+
+  <link name="link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link4.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link4.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0 -0.042169 0.046483" rpy="0 0 0"/>
+    <parent link="link4"/>
+    <child link="camera_link"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/camera_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/camera_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint5" type="revolute">
+    <origin xyz="0 0 0.05071" rpy="0 0 0"/>
+    <parent link="link4"/>
+    <child link="link5"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.09" upper="2.09" effort="1000" velocity="5"/>
+  </joint>
+
+  <link name="link5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link5.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/link5.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="grasping_frame_joint" type="fixed">
+    <parent link="link5"/>
+    <child link="grasping_frame"/>
+    <origin xyz="0 0 0.1126" rpy="0 0 0"/>
+  </joint>
+
+  <link name="grasping_frame"/>
+
+  <joint name="gripper_base_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="link5"/>
+    <child link="gripper_base"/>
+  </joint>
+
+  <link name="gripper_base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/gripper_base.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/gripper_base.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="r_joint" type="revolute">
+    <origin xyz="0.01399 -0.00748 0.03255" rpy="-1.5725 0.81063 0"/>
+    <parent link="gripper_base"/>
+    <child link="r_link"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.57" upper="1.57" effort="1000" velocity="5"/>
+  </joint>
+
+  <link name="r_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="r_in_joint" type="continuous">
+    <origin xyz="0.00499 -0.0075 0.05152" rpy="-1.5725 0.81127 0"/>
+    <parent link="gripper_base"/>
+    <child link="r_in_link"/>
+    <axis xyz="0 0 -1"/>
+    <mimic joint="r_joint" multiplier="1" offset="0"/>
+  </joint>
+
+  <link name="r_in_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_in_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_in_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="r_out_joint" type="continuous">
+    <origin xyz="-0.01908 -0.02184 0.0045" rpy="-3.1413 0 -2.5695"/>
+    <parent link="r_in_link"/>
+    <child link="r_out_link"/>
+    <axis xyz="0 0 -1"/>
+    <mimic joint="r_joint" multiplier="1" offset="0"/>
+  </joint>
+
+  <link name="r_out_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_out_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/r_out_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="l_joint" type="revolute">
+    <origin xyz="-0.01401 -0.00603 0.03253" rpy="1.5692 1.149 3.1416"/>
+    <parent link="gripper_base"/>
+    <child link="l_link"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-3.14" upper="3.14" effort="1000" velocity="10"/>
+    <mimic joint="r_joint" multiplier="-1" offset="0"/>
+  </joint>
+
+  <link name="l_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="l_in_joint" type="continuous">
+    <origin xyz="-0.00502 -0.006 0.05152" rpy="1.5719 0 3.1404"/>
+    <parent link="gripper_base"/>
+    <child link="l_in_link"/>
+    <axis xyz="0 0 -1"/>
+    <mimic joint="r_joint" multiplier="-1" offset="0"/>
+  </joint>
+
+  <link name="l_in_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_in_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_in_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="l_out_joint" type="continuous">
+    <origin xyz="0.0027 0.02888 0.003" rpy="0 0 1.7582"/>
+    <parent link="l_in_link"/>
+    <child link="l_out_link"/>
+    <axis xyz="0 0 -1"/>
+    <mimic joint="r_joint" multiplier="1" offset="0"/>
+  </joint>
+
+  <link name="l_out_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_out_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://snow_description/meshes/l_out_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ==================== arm_base_support ==================== -->
+  <joint name="armbase1_support_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="armbase1_support_link"/>
+    <origin xyz="-0.01 -0.11335 0.07" rpy="0 0 0"/>
+  </joint>
+
+  <link name="armbase1_support_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <joint name="armbase2_support_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="armbase2_support_link"/>
+    <origin xyz="-0.01 0.00665 0.07" rpy="0 0 0"/>
+  </joint>
+
+  <link name="armbase2_support_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <joint name="armbase3_support_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="armbase3_support_link"/>
+    <origin xyz="0.055 -0.06835 0.07" rpy="0 0 0"/>
+  </joint>
+
+  <link name="armbase3_support_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <joint name="armbase4_support_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="armbase4_support_link"/>
+    <origin xyz="0.055 -0.03585 0.07" rpy="0 0 0"/>
+  </joint>
+
+  <link name="armbase4_support_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder length="0.025" radius="0.003"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+  <!-- ==================== realsense_link ==================== -->
+  <joint name="realsense_joint" type="fixed">
+    <parent link="mobile_base_link"/>
+    <child link="realsense_link"/>
+    <origin xyz="0.082 0 0.07" rpy="0 0 0"/>
+  </joint>
+
+  <link name="realsense_link">
+    <visual>
+      <geometry>
+        <box size="0.026 0.09 0.025"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.026 0.09 0.025"/>
+      </geometry>
+      <origin xyz="0 0 0.0125" rpy="0 0 0"/>
+    </collision>
+  </link>
+
+</robot>

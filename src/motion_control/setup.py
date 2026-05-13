@@ -24,7 +24,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'motion_control = motion_control.motion_control:main'
+            'motion_control = motion_control.motion_control:main',
+            'path_follower = motion_control.path_follower:main',
+            'path_planner = motion_control.path_planner:main'
         ],
     },
 )

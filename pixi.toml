@@ -7,7 +7,6 @@ channels = [
 ]
 platforms = [
   "osx-arm64",
-  "win-64",
   "linux-64",
 ]
 version = "1.0.0"
@@ -26,7 +25,10 @@ realsense = { cmd = "ros2 launch robp_launch realsense_launch.yaml" }
 odom = { cmd = "ros2 launch robp_boot_camp_launch boot_camp_part1_launch.xml" }
 arm_pick = { cmd = "ros2 run arm_pick arm_pick_node" }
 arm_drop = { cmd = "ros2 run arm_pick arm_drop_node" }
+arm_pick_ik = { cmd = "ros2 run arm_pick arm_pick_ik" }
 sample = "python image_sampler.py --ros-args -p output_dir:=$PIXI_PROJECT_ROOT/cube_images"
+build = "colcon build --symlink-install"
+build_tracik = "colcon build --symlink-install --packages-select trac_ik_lib trac_ik_kinematics_plugin"
 
 [tasks.phidgets_teleop]
 cmd = "python3 src/phidgets_teleop/phidgets_teleop/teleop.py"
@@ -79,7 +81,7 @@ echo "Finished"
 
 [dependencies]
 # ROS
-ros2-distro-mutex = ">=0.13,<0.14"
+ros2-distro-mutex = ">=0.14,<0.15"
 ros-jazzy-ros2run = ">=0.32.6,<0.33"
 ros-jazzy-ros2interface = ">=0.32.6,<0.33"
 ros-jazzy-rviz2 = ">=14.1.16,<15"
@@ -92,9 +94,9 @@ ros-jazzy-rqt-common-plugins = ">=1.2.0,<2"
 ros-jazzy-ros2cli = ">=0.32.7,<0.33"
 ros-jazzy-ros2cli-common-extensions = ">=0.3.1,<0.4"
 ros-jazzy-rosidl-cli = ">=4.6.7,<5"
-
-# Workspace
-ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
+ros-jazzy-ros2-control = "*"
+ros-jazzy-ros2-controllers = "*"
+colcon-common-extensions = "*"
 
 
 # Course packages'arm_pick = arm_pick.arm_pick_node:main'
@@ -102,10 +104,14 @@ ros-jazzy-aruco-ros = { path = "src/aruco_ros/aruco_ros" }
 ros-jazzy-arm-pick = { path = "src/arm_pick" }
 ros-jazzy-arm-detector = { path = "src/arm_detector" }
 ros-jazzy-snow-description = { path = "src/snow_description" }
+ros-jazzy-snow-moveit-config = { path = "src/snow_moveit_config/package.xml" }
+ros-jazzy-snow-launch = { path = "src/snow_launch/package.xml" }
+ros-jazzy-arm-relay = { path = "src/arm_relay" }
 ros-jazzy-arm-joint-state-publisher = { path = "src/arm_joint_state_publisher" }
+ros-jazzy-arm-commander = { path = "src/arm_commander" }
+ros-jazzy-arm-hardware-interface = { path = "src/arm_hardware_interface" }
+ros-jazzy-task-generator = { path = "src/task_generator" }
 
-
-ros-jazzy-localization = { path = "src/localization"}
 ros-jazzy-motion-control = { path = "src/motion_control"}
 
 ros-jazzy-planning = {path = "src/planning"}
@@ -124,6 +130,7 @@ ros-jazzy-detection = { path = "src/detection" }
 ros-jazzy-mapping = { path = "src/mapping" }
 ros-jazzy-exploration-planner = { path = "src/exploration_planner" }
 ros-jazzy-navigation = { path = "src/navigation" }
+
 ros-jazzy-general-planner = { path = "src/general_planner" }
 
 
@@ -143,11 +150,21 @@ numpy = ">=2.4.3,<3"
 scikit-learn = ">=1.8.0,<2"
 ros-jazzy-robot-state-publisher = ">=3.3.3,<4"
 ros-jazzy-joint-state-publisher-gui = ">=2.4.0,<3"
+scipy = ">=1.17.1,<2"
+ros-jazzy-moveit-setup-framework = ">=2.12.4,<3"
+ros-jazzy-moveit-setup-core-plugins = ">=2.12.4,<3"
+ros-jazzy-moveit-setup-controllers = ">=2.12.4,<3"
+ros-jazzy-rmw-cyclonedds-cpp = ">=2.2.3,<3"
+ros-jazzy-moveit = ">=2.12.4,<3"
+filelock = ">=3.29.0,<4"
+ros-jazzy-trac-ik-kinematics-plugin = ">=2.0.2,<3"
+ros-jazzy-trac-ik-lib = ">=2.0.2,<3"
 
 [target.linux-64.dependencies]
 # ROS
 ros-jazzy-usb-cam = ">=0.8.1,<0.9"
 ros-jazzy-foxglove-bridge = ">=3.2.2,<4"
+
 
 # Workspace
 ros-jazzy-realsense2-camera = { path = "src/realsense-ros/realsense2_camera" }
@@ -166,6 +183,9 @@ platformio = ">=6.1.18,<7"
 RMW_IMPLEMENTATION = "rmw_cyclonedds_cpp"
 ROS_AUTOMATIC_DISCOVERY_RANGE = "SUBNET"  # LOCALHOST, SUBNET
 ROS_DOMAIN_ID = "7"                       # Change to group number
+NO_AT_BRIDGE= "1"
+QT_QPA_PLATFORM = "xcb"
 
 [pypi-dependencies]
 hsv-calibration = ">=0.7, <0.8"
+ikpy = ">=3.4.2, <4"

@@ -8,8 +8,10 @@ from tf2_geometry_msgs import do_transform_pose
 from std_msgs.msg import Bool
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import MarkerArray
-from robp_interfaces.srv import GetNextFrontier
+from robp_interfaces.srv import GetNextFrontier, ArmCommand
 from robp_interfaces.msg import PoseStampedWithType
+from std_msgs.msg import Bool
+import time
 
 
 class GeneralPlanner(Node):
@@ -26,6 +28,10 @@ class GeneralPlanner(Node):
         self.boxes = {}          # id -> pose
         self.picked_ids = set()  # already picked object ids
 
+        # arm service variables
+        self.arm_future = None
+        self.arm_done = False
+
 
         # publisher
         self.goal_pub = self.create_publisher(
@@ -33,6 +39,9 @@ class GeneralPlanner(Node):
             '/goal_pose',
             10
         )
+
+        self.reverse_pub = self.create_publisher(
+            Bool, '/reverse_robot', 10)
 
         # listeners
         self.detection_sub = self.create_subscription(
@@ -53,6 +62,11 @@ class GeneralPlanner(Node):
         self.frontier_client = self.create_client(
             GetNextFrontier,
             'get_next_frontier'
+        )
+
+        self.arm_client = self.create_client(
+            ArmCommand,
+            '/arm_command'
         )
 
         # timer
@@ -94,8 +108,8 @@ class GeneralPlanner(Node):
             )
 
             xpose = transform.transform.translation.x
-            ypose = transform.transform.translation.x
-            zpose = transform.transform.translation.x
+            ypose = transform.transform.translation.y
+            zpose = transform.transform.translation.z
             
             # map_pose = do_transform_pose(pose, transform) # transform between 0,0,0 in base_link frame and map frame
             return (xpose, ypose, zpose)
@@ -146,24 +160,29 @@ class GeneralPlanner(Node):
 
     def get_closest_box(self):
 
-        robot_pose = self.get_robot_pose()
-        if robot_pose is None:
+        # robot_pose = self.get_robot_pose()
+        # if robot_pose is None:
+        #     return None
+
+        # min_dist = float("inf")
+        # chosen_pose = None
+
+        # for pose in self.boxes.values():
+
+        #     dx = robot_pose[0] - pose.position.x
+        #     dy = robot_pose[1] - pose.position.y
+        #     dist = math.hypot(dx, dy)
+
+        #     if dist < min_dist:
+        #         min_dist = dist
+        #         chosen_pose = pose
+
+        # return chosen_pose
+
+        if not self.boxes:
             return None
-
-        min_dist = float("inf")
-        chosen_pose = None
-
-        for pose in self.boxes.values():
-
-            dx = robot_pose[0] - pose.position.x
-            dy = robot_pose[1] - pose.position.y
-            dist = math.hypot(dx, dy)
-
-            if dist < min_dist:
-                min_dist = dist
-                chosen_pose = pose
-
-        return chosen_pose
+        first_id = min(self.boxes.keys())
+        return self.boxes[first_id]
 
     def remove_picked_object(self, obj_id):
 
@@ -198,6 +217,28 @@ class GeneralPlanner(Node):
     #     else:
     #         self.frontier_result = result
 
+    def call_arm(self, command):
+
+        if not self.arm_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn("Arm service not available")
+            return
+
+        req = ArmCommand.Request()
+        req.command = command
+
+        self.arm_future = self.arm_client.call_async(req)
+        self.arm_future.add_done_callback(self.arm_response_callback)
+
+    def arm_response_callback(self, future):
+        try:
+            result = future.result()
+            self.get_logger().info(f"Arm success: {result.success}")
+            self.arm_done = True
+        except Exception as e:
+            self.get_logger().error(f"Arm call failed: {e}")
+            self.arm_done = False
+
+
     # Main loop
     def timer_callback(self):
 
@@ -211,7 +252,7 @@ class GeneralPlanner(Node):
             obj_id, pose = self.get_closest_object()
 
             if pose is not None:
-                print("Object choosed")
+                print("Object choosen")
                 self.current_target_id = obj_id
                 position_o_x, position_o_y, orientation_o = self.get_near_object(pose.position.x, pose.position.y)
                 self.publish_goal(
@@ -234,14 +275,21 @@ class GeneralPlanner(Node):
             
         elif self.state == 'PICK_OBJECT':
             # Call pick object service. When response, go to CHOOSE_BOX
-            print("Object picked") # Simulate the pick service not functionnal yet
-            self.remove_picked_object(self.current_target_id)
-            self.state = "CHOOSE_BOX"
+            print("Object picking")
+            if self.arm_future is None:
+                self.arm_done = False
+                self.call_arm("pick")
+
+            elif self.arm_done:
+                print("Object picked")
+                self.arm_future = None
+                self.remove_picked_object(self.current_target_id)
+                self.state = "CHOOSE_BOX"
         
         elif self.state == 'CHOOSE_BOX':
             # Find closest box position and change state to GO_TO_BOX
             box = self.get_closest_box()
-            print("Box choosed")
+            print("Box choosen")
             position_b_x, position_b_y, orientation_b = self.get_near_box(box.position.x, box.position.y)
             self.publish_goal(
                 "B",
@@ -261,8 +309,19 @@ class GeneralPlanner(Node):
             
         elif self.state == 'DROP_OBJECT':
             # Call drop object service. When response, go to state CHOOSE_OBJECT
-            print("Object dropped")
-            self.state = "CHOOSE_OBJECT"
+            print("Object dropping")
+            if self.arm_future is None:
+                self.arm_done = False
+                self.call_arm("drop")
+
+            elif self.arm_done:
+                print("Object dropped")
+                msg = Bool()
+                msg.data = True
+                self.reverse_pub.publish(msg)
+                time.sleep(0.6)
+                self.arm_future = None
+                self.state = "CHOOSE_OBJECT"
         
         elif self.state == 'CHOOSE_EXPLO':
             # Call GetNextFrontier. If response, go to state EXPLORE. If no response, go to state DONE

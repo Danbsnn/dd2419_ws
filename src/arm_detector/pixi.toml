@@ -11,10 +11,10 @@ extra-input-globs = [
 ]
 
 [package.host-dependencies]
-ros2-distro-mutex = ">=0.13,<0.14"
+ros2-distro-mutex = ">=0.14,<0.15"
 
 [package.build-dependencies]
-ros2-distro-mutex = ">=0.13,<0.14"
+ros2-distro-mutex = ">=0.14,<0.15"
 
 [package.run-dependencies]
-ros2-distro-mutex = ">=0.13,<0.14"
+ros2-distro-mutex = ">=0.14,<0.15"

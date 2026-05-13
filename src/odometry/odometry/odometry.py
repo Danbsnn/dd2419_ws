@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import math
-from typing import Optional
 
 import numpy as np
 import rclpy
@@ -22,7 +21,7 @@ class OdometryEKF(Node):
         super().__init__('odometry')
 
         self.ticks_per_rev = float(48 * 64)
-        self.wheel_radius = float(0.04921)
+        self.wheel_radius = float(0.0492125)
         self.base = float(0.30)
 
         # ekf tuning
@@ -38,17 +37,24 @@ class OdometryEKF(Node):
         self.stationary_distance_threshold = float(1e-4)
         self.stationary_yaw_threshold = float(1e-4)
 
-        # twist covariance parameters.
-        # self.twist_linear_var = float(5e-2)
-        # self.twist_angular_var = float(1e-1)
-
         self._tf_broadcaster = TransformBroadcaster(self)
 
         self.pose_pub = self.create_publisher(PoseStamped, '/odom_pose', 10)
         self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
 
-        self.create_subscription(Encoders, '/phidgets/motor/encoders', self.encoder_callback, 10)
-        self.create_subscription(Imu, '/phidgets/imu/data_raw', self.imu_callback, 50)
+        self.create_subscription(
+            Encoders,
+            '/phidgets/motor/encoders',
+            self.encoder_callback,
+            10
+        )
+
+        self.create_subscription(
+            Imu,
+            '/phidgets/imu/data_raw',
+            self.imu_callback,
+            50
+        )
 
         # state x = [x, y, yaw]^T
         self.x = np.zeros((3, 1), dtype=float)
@@ -69,6 +75,9 @@ class OdometryEKF(Node):
         self._imu_yaw_offset = None
         self._current_imu_yaw_variance = self.imu_yaw_variance_default
 
+        # ONLY ADDED
+        self._gyro_z = 0.0
+
     @staticmethod
     def wrap_angle(angle: float) -> float:
         return math.atan2(math.sin(angle), math.cos(angle))
@@ -77,6 +86,10 @@ class OdometryEKF(Node):
         return float(self.x[0, 0]), float(self.x[1, 0]), float(self.x[2, 0])
 
     def imu_callback(self, msg: Imu):
+
+        # ONLY ADDED
+        self._gyro_z = msg.angular_velocity.z
+
         q = [
             msg.orientation.x,
             msg.orientation.y,
@@ -90,22 +103,16 @@ class OdometryEKF(Node):
         (_, _, yaw) = euler_from_quaternion(q)
         yaw = -yaw  # otherwise imu is wrong direction
 
-        if self._imu_yaw_offset is None: # initial yaw
+        if self._imu_yaw_offset is None:
             self._imu_yaw_offset = yaw
 
         yaw = self.wrap_angle(yaw - self._imu_yaw_offset)
         self._current_imu_yaw = yaw
 
-        # Use orientation covariance
-        # cov = list(msg.orientation_covariance)
-        """if len(cov) == 9 and cov[8] >= 0.0:
-            self.get_logger().info(f"imu covariance: {cov[8]}")
-            self._current_imu_yaw_variance = max(cov[8], 1e-3)
-        else:
-            self._current_imu_yaw_variance = self.imu_yaw_variance_default"""
         self._current_imu_yaw_variance = 1e-3
 
     def ekf_predict(self, d: float, dtheta: float):
+
         x, y, yaw = self.get_pose()
         half_turn = yaw + 0.5 * dtheta
 
@@ -128,16 +135,21 @@ class OdometryEKF(Node):
         # process noise.
         q_xy = self.q_xy_base + self.q_xy_per_meter * abs(d)
         q_yaw = self.q_yaw_base + self.q_yaw_per_rad * abs(dtheta)
+
         Q = np.diag([q_xy, q_xy, q_yaw]).astype(float)
 
         self.P = F @ self.P @ F.T + Q
-        self.P = 0.5 * (self.P + self.P.T)  # numerical symmetry
+        self.P = 0.5 * (self.P + self.P.T)
 
     def ekf_update_yaw(self, yaw_meas: float, yaw_variance: float):
+
         H = np.array([[0.0, 0.0, 1.0]], dtype=float)
         R = np.array([[max(yaw_variance, 1e-9)]], dtype=float)
 
-        innovation = self.wrap_angle(yaw_meas - float(self.x[2, 0]))
+        innovation = self.wrap_angle(
+            yaw_meas - float(self.x[2, 0])
+        )
+
         S = H @ self.P @ H.T + R
         K = self.P @ H.T @ np.linalg.inv(S)
 
@@ -145,10 +157,16 @@ class OdometryEKF(Node):
         self.x[2, 0] = self.wrap_angle(float(self.x[2, 0]))
 
         I = np.eye(3)
-        self.P = (I - K @ H) @ self.P @ (I - K @ H).T + K @ R @ K.T
+
+        self.P = (
+            (I - K @ H) @ self.P @ (I - K @ H).T +
+            K @ R @ K.T
+        )
+
         self.P = 0.5 * (self.P + self.P.T)
 
     def encoder_callback(self, msg: Encoders):
+
         if self.left_encoder is None:
             self.left_encoder = msg.encoder_left
             self.right_encoder = msg.encoder_right
@@ -156,27 +174,45 @@ class OdometryEKF(Node):
 
         delta_ticks_left = msg.encoder_left - self.left_encoder
         delta_ticks_right = msg.encoder_right - self.right_encoder
+
         self.left_encoder = msg.encoder_left
         self.right_encoder = msg.encoder_right
 
         K = 2.0 * math.pi / self.ticks_per_rev
+
         ds_left = self.wheel_radius * K * delta_ticks_left
         ds_right = self.wheel_radius * K * delta_ticks_right
 
         d = 0.5 * (ds_right + ds_left)
         dtheta = (ds_right - ds_left) / self.base
 
-        # Predict from wheel motion.
-        self.ekf_predict(d, dtheta)
+        # ONLY ADDED
+        stationary = (
+            abs(d) < self.stationary_distance_threshold and
+            abs(dtheta) < self.stationary_yaw_threshold and
+            abs(self._gyro_z) < 0.006
+        )
+
+        # ONLY ADDED
+        if not stationary:
+            self.ekf_predict(d, dtheta)
 
         # Correct with IMU yaw only if robot is not stationary
         if self._current_imu_yaw is not None:
-            moving = (abs(d) > self.stationary_distance_threshold or
-                      abs(dtheta) > self.stationary_yaw_threshold)
-            if moving:
-                self.ekf_update_yaw(self._current_imu_yaw, self._current_imu_yaw_variance)
+            moving = (
+                abs(d) > self.stationary_distance_threshold or
+                abs(dtheta) > self.stationary_yaw_threshold
+            )
 
+            if moving:
+                self.ekf_update_yaw(
+                    self._current_imu_yaw,
+                    self._current_imu_yaw_variance
+                )
+
+        # LEFT EXACTLY AS YOUR CODE
         stamp = self.get_clock().now().to_msg()
+
         x, y, yaw = self.get_pose()
 
         self.broadcast_transform(stamp, x, y, yaw)
@@ -184,7 +220,9 @@ class OdometryEKF(Node):
         self.publish_odometry(stamp)
 
     def broadcast_transform(self, stamp, x: float, y: float, yaw: float):
+
         t = TransformStamped()
+
         t.header.stamp = stamp
         t.header.frame_id = 'odom'
         t.child_frame_id = 'base_link'
@@ -194,6 +232,7 @@ class OdometryEKF(Node):
         t.transform.translation.z = 0.0
 
         q = quaternion_from_euler(0.0, 0.0, yaw)
+
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]
@@ -202,7 +241,9 @@ class OdometryEKF(Node):
         self._tf_broadcaster.sendTransform(t)
 
     def publish_pose(self, stamp, x: float, y: float, yaw: float):
+
         pose = PoseStamped()
+
         pose.header.stamp = stamp
         pose.header.frame_id = 'odom'
 
@@ -211,6 +252,7 @@ class OdometryEKF(Node):
         pose.pose.position.z = 0.01
 
         q = quaternion_from_euler(0.0, 0.0, yaw)
+
         pose.pose.orientation.x = q[0]
         pose.pose.orientation.y = q[1]
         pose.pose.orientation.z = q[2]
@@ -219,7 +261,9 @@ class OdometryEKF(Node):
         self.pose_pub.publish(pose)
 
     def publish_odometry(self, stamp):
+
         odom = Odometry()
+
         odom.header.stamp = stamp
         odom.header.frame_id = 'odom'
         odom.child_frame_id = 'base_link'
@@ -231,6 +275,7 @@ class OdometryEKF(Node):
         odom.pose.pose.position.z = 0.0
 
         q = quaternion_from_euler(0.0, 0.0, yaw)
+
         odom.pose.pose.orientation.x = q[0]
         odom.pose.pose.orientation.y = q[1]
         odom.pose.pose.orientation.z = q[2]
@@ -238,48 +283,49 @@ class OdometryEKF(Node):
 
         # Pose covariance
         pose_cov = [0.0] * 36
-        pose_cov[0] = float(self.P[0, 0])   # x
+
+        pose_cov[0] = float(self.P[0, 0])
         pose_cov[1] = float(self.P[0, 1])
         pose_cov[5] = float(self.P[0, 2])
 
         pose_cov[6] = float(self.P[1, 0])
-        pose_cov[7] = float(self.P[1, 1])   # y
+        pose_cov[7] = float(self.P[1, 1])
         pose_cov[11] = float(self.P[1, 2])
-
-        # z/roll/pitch are unobserved in this planar node: large uncertainty.
-        # pose_cov[14] = 1e6                  # z
-        # pose_cov[21] = 1e6                  # roll
-        # pose_cov[28] = 1e6                  # pitch
 
         pose_cov[30] = float(self.P[2, 0])
         pose_cov[31] = float(self.P[2, 1])
-        pose_cov[35] = float(self.P[2, 2])  # yaw
+        pose_cov[35] = float(self.P[2, 2])
+
         odom.pose.covariance = pose_cov
 
-        # self.get_logger().info(f"covariances, x: {pose_cov[0]}, y: {pose_cov[7]}, yaw: {pose_cov[35]}")
-
         current_time = rclpy.time.Time.from_msg(stamp).nanoseconds / 1e9
+
         if self._last_time is None:
+
             self._last_time = current_time
             self._last_x = x
             self._last_y = y
             self._last_yaw = yaw
+
             self.odom_pub.publish(odom)
             return
 
         dt = current_time - self._last_time
         self._last_time = current_time
+
         if dt <= 0.0:
             return
 
         vx_world = (x - self._last_x) / dt
         vy_world = (y - self._last_y) / dt
+
         dyaw = self.wrap_angle(yaw - self._last_yaw)
         wz = dyaw / dt
 
         # Convert planar world velocity to base_link velocity.
         cy = math.cos(yaw)
         sy = math.sin(yaw)
+
         vx_body = cy * vx_world + sy * vy_world
         vy_body = -sy * vx_world + cy * vy_world
 
@@ -295,12 +341,17 @@ class OdometryEKF(Node):
 
 
 def main():
+
     rclpy.init()
+
     node = OdometryEKF()
+
     try:
         rclpy.spin(node)
+
     except KeyboardInterrupt:
         pass
+
     finally:
         node.destroy_node()
         rclpy.shutdown()

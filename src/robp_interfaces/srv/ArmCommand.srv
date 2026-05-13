@@ -1,0 +1,4 @@
+string command   # "pick" or "drop"
+---
+bool success
+string message

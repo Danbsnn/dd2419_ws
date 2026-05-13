@@ -1,0 +1,23 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: snow_description
+    relative_path: urdf/snow.urdf.xacro
+  srdf:
+    relative_path: config/snow.srdf
+  package_settings:
+    author_name: diocriss
+    author_email: diocriss@gmail.com
+    generated_timestamp: 1777034623
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position

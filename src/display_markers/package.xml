@@ -7,7 +7,7 @@
   <maintainer email="danielduberg@gmail.com">dduberg</maintainer>
   <license>MIT</license>
 
-  <exec_depend>aruco_msgs</exec_depend>
+  <!--<exec_depend>aruco_ros</exec_depend>-->
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>

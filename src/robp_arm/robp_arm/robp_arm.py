@@ -67,9 +67,17 @@ def main() -> None:
   rclpy.init()
   arm = Arm()
 
-  while rclpy.ok():
-    arm.feedback()
-    rclpy.spin_once(arm, timeout_sec=0.001)
+  try:
+    while rclpy.ok():
+      rclpy.spin_once(arm, timeout_sec=0.001)
+      arm.feedback()
+  except KeyboardInterrupt:
+    pass
+  finally:
+    arm.destroy_node()
+    if rclpy.ok():
+      rclpy.shutdown()
+  
 
 if __name__ == '__main__':
     main()

@@ -24,10 +24,12 @@ class ArmJointStatePublisher(Node):
         )
 
     def feedback_callback(self, msg):
-        pos = msg.position  # the 6-element array
+        pos = msg.position
 
         js = JointState()
-        js.header.stamp = self.get_clock().now().to_msg()
+        js.header.stamp = msg.header.stamp
+        js.header.frame_id = "base_link"
+
         js.name = [
             'joint1',
             'joint2',
@@ -37,19 +39,16 @@ class ArmJointStatePublisher(Node):
             'r_joint',
         ]
 
-        # joints 1-5: motor 0-240 deg, center=120 deg = 0 rad
-        # sign can be flipped per joint once tested in RViz2
-        joint1 = math.radians(pos[5] - 120)   # base rotation
+        joint1 = math.radians(pos[5] - 120)
         joint2 = math.radians(pos[4] - 120)
         joint3 = math.radians(-pos[3] + 120)
-        joint4 = math.radians(pos[2]-120 )
-        joint5 = math.radians(pos[1]-120)   # gripper rotation
-
-        # gripper: 0-160 deg, 30=closed, 115=open
-        # mapped so that 0 rad = open (115 deg)
-        r_joint = math.radians(((pos[0]/2)-84))
+        joint4 = math.radians(pos[2] - 120)
+        joint5 = math.radians(pos[1] - 120)
+        r_joint = math.radians((pos[0] / 2) - 84)
 
         js.position = [joint1, joint2, joint3, joint4, joint5, r_joint]
+        js.velocity = []
+        js.effort = []
 
         self.joint_state_pub.publish(js)
 

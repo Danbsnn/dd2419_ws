@@ -1,0 +1,56 @@
+<launch>
+  
+    <!-- <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.yaml" />
+	<node pkg="odometry" exec="odometry" />
+  <node pkg="lidar" exec="lidar_icp" />
+  <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
+  <node pkg="motion_control" exec="path_planner"  />
+  <node pkg="motion_control" exec="path_follower"  />   
+  <node pkg="mapping" exec="grid_publisher" /> -->
+
+  <!-- ==================== HARDWARE LAUNCH FILES ==================== -->
+  <include file="$(find-pkg-share robp_launch)/launch/arm_launch.yaml"/>
+  
+ 
+ 
+  <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
+     <!--<node pkg="detection" exec="detection" />/-->
+
+ 
+
+  <!-- ==================== ODOMETRY ==================== -->
+ 
+  <!-- ==================== ROBOT DESCRIPTION ==================== -->
+  <let name="urdf_path" value="$(find-pkg-share snow_description)/urdf/snow.urdf.xacro"/>
+  
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" >
+    <param name="robot_description" value="$(command 'xacro $(var urdf_path)')"/>
+  </node>
+ 
+  <!-- ==================== ROS2 CONTROL ==================== -->
+  <node pkg="controller_manager" exec="ros2_control_node" >
+    <param from="$(find-pkg-share snow_launch)/config/ros2_controllers.yaml"/>
+  </node>
+
+  <!-- ==================== CONTROLLER SPAWNERS ==================== -->
+  <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster"/>
+  <node pkg="controller_manager" exec="spawner" args="arm_controller" />
+  <node pkg="controller_manager" exec="spawner" args="gripper_controller" />
+  
+  <!-- ==================== MOVEIT ==================== -->
+  <include file="$(find-pkg-share snow_moveit_config)/launch/move_group.launch.py"/>
+
+  <!-- ==================== ARM DETECTOR NODE ==================== -->
+  <node pkg="arm_detector" exec="arm_detector" />
+
+  <!-- ==================== ARM COMMANDER NODE (SERVICE NODE) ==================== -->
+  <node pkg="arm_commander" exec="arm_commander" />
+  
+  <!--node pkg="task_generator" exec="task_generator" /-->
+  
+
+
+  <!-- ==================== RVIZ2 ==================== -->
+  <!--let name="rviz_config_path" value="$(find-pkg-share snow_launch)/config/snow_moveit_config.rviz"/-->
+  <!--node pkg="rviz2" exec="rviz2" output="screen" args="-d $(var rviz_config_path)"/-->
+</launch>

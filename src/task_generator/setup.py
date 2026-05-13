@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'detection'
+package_name = 'task_generator'
 
 setup(
     name=package_name,
@@ -13,8 +13,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='dduberg',
-    maintainer_email='danielduberg@gmail.com',
+    maintainer='snowwhite',
+    maintainer_email='daniel.purroy02@gmail.com',
     description='TODO: Package description',
     license='MIT',
     extras_require={
@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'task_generator = task_generator.task_generator:main'
+        'task_generator = task_generator.task_generator:main'
         ],
     },
 )
